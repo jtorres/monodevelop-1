@@ -53,6 +53,8 @@ namespace MonoDevelop.PackageManagement
 
 			string path = SettingsUtility.GetGlobalPackagesFolder (settings);
 			packagePathResolver = new VersionFolderPathResolver (path);
+
+			ProjectServices = new NuGetProjectServices (dotNetProject);
 		}
 
 		public Task SaveProject ()
@@ -60,7 +62,7 @@ namespace MonoDevelop.PackageManagement
 			return dotNetProject.SaveAsync ();
 		}
 
-		public DotNetProjectProxy Project {
+		public IDotNetProject Project {
 			get { return dotNetProject; }
 		}
 

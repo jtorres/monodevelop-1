@@ -40,6 +40,35 @@ using Gtk;
 
 namespace MonoDevelop.Ide.Editor.Extension
 {
+	public enum SignatureHelpTriggerReason
+	{
+		InvokeSignatureHelpCommand,
+		TypeCharCommand,
+		RetriggerCommand
+	}
+
+	public struct SignatureHelpTriggerInfo
+	{
+		public char? TriggerCharacter {
+			get;
+		}
+
+		public SignatureHelpTriggerReason TriggerReason {
+			get;
+		}
+
+		public SignatureHelpTriggerInfo (SignatureHelpTriggerReason triggerReason, char? triggerCharacter = null)
+		{
+			TriggerReason = triggerReason;
+			TriggerCharacter = triggerCharacter;
+		}
+
+		internal Microsoft.CodeAnalysis.SignatureHelp.SignatureHelpTriggerInfo ToRoslyn()
+		{
+			return new Microsoft.CodeAnalysis.SignatureHelp.SignatureHelpTriggerInfo ((Microsoft.CodeAnalysis.SignatureHelp.SignatureHelpTriggerReason)TriggerReason, TriggerCharacter);
+		}
+	}
+
 	public class CompletionTextEditorExtension : TextEditorExtension
 	{
 		internal protected CodeCompletionContext CurrentCompletionContext {
@@ -161,7 +190,7 @@ namespace MonoDevelop.Ide.Editor.Extension
 				var caretOffset = Editor.CaretOffset;
 				var token = completionTokenSrc.Token;
 				try {
-					var task = HandleCodeCompletionAsync (CurrentCompletionContext, new CompletionTriggerInfo (CompletionTriggerReason.CharTyped, descriptor.KeyChar), token);
+					var task = Task.Run (() => HandleCodeCompletionAsync (CurrentCompletionContext, new CompletionTriggerInfo (CompletionTriggerReason.CharTyped, descriptor.KeyChar), token));
 					if (task != null) {
 						// Show the completion window in two steps. The call to PrepareShowWindow creates the window but
 						// it doesn't show it. It is used only to process the keys while the completion data is being retrieved.
@@ -265,12 +294,12 @@ namespace MonoDevelop.Ide.Editor.Extension
 				}
 			}
 
-			if (CompletionWidget != null) {
+			if (CompletionWidget != null && ParameterInformationWindowManager.CurrentMethodGroup == null) {
 				CodeCompletionContext ctx = CompletionWidget.CurrentCodeCompletionContext;
 				var newparameterHintingSrc = new CancellationTokenSource ();
 				var token = newparameterHintingSrc.Token;
 				try {
-					var task = HandleParameterCompletionAsync (ctx, descriptor.KeyChar, token);
+					var task = HandleParameterCompletionAsync (ctx, new SignatureHelpTriggerInfo (SignatureHelpTriggerReason.TypeCharCommand, descriptor.KeyChar), token);
 					if (task != null) {
 						parameterHintingSrc.Cancel ();
 						parameterHintingSrc = newparameterHintingSrc;
@@ -490,9 +519,15 @@ namespace MonoDevelop.Ide.Editor.Extension
 			return HandleCodeCompletionAsync (completionContext, CompletionTriggerInfo.CodeCompletionCommand);
 		}
 
-		public virtual Task<ParameterHintingResult> HandleParameterCompletionAsync (CodeCompletionContext completionContext, char completionChar, CancellationToken token = default(CancellationToken))
+		[Obsolete("Use HandleParameterCompletionAsync (CodeCompletionContext completionContext, SignatureHelpTriggerInfo triggerInfo, CancellationToken token)")]
+		public virtual Task<ParameterHintingResult> HandleParameterCompletionAsync (CodeCompletionContext completionContext, char completionChar, CancellationToken token = default (CancellationToken))
 		{
 			return Task.FromResult (ParameterHintingResult.Empty);
+		}
+
+		public virtual Task<ParameterHintingResult> HandleParameterCompletionAsync (CodeCompletionContext completionContext, SignatureHelpTriggerInfo triggerInfo, CancellationToken token = default (CancellationToken))
+		{
+			return HandleParameterCompletionAsync (completionContext, triggerInfo.TriggerCharacter.HasValue ? triggerInfo.TriggerCharacter.Value : '\0', token);
 		}
 
 		// return false if completion can't be shown
@@ -570,7 +605,7 @@ namespace MonoDevelop.Ide.Editor.Extension
 			parameterHintingSrc = new CancellationTokenSource ();
 
 			try {
-				return await HandleParameterCompletionAsync (completionContext, Editor.GetCharAt (pos - 1), parameterHintingSrc.Token);
+				return await HandleParameterCompletionAsync (completionContext, new SignatureHelpTriggerInfo (SignatureHelpTriggerReason.InvokeSignatureHelpCommand), parameterHintingSrc.Token);
 			} catch (TaskCanceledException) {
 			} catch (AggregateException) {
 			}
@@ -579,8 +614,10 @@ namespace MonoDevelop.Ide.Editor.Extension
 
 		public virtual async Task<int> GuessBestMethodOverload (ParameterHintingResult provider, int currentOverload, System.Threading.CancellationToken token)
 		{
+			if (provider.SelectedItemIndex.HasValue)
+				return provider.SelectedItemIndex.Value;
 			var currentHintingData = provider [currentOverload];
-			int cparam = await GetCurrentParameterIndex (provider.StartOffset, token).ConfigureAwait (false);
+			int cparam = await GetCurrentParameterIndex (provider.ParameterListStart, token).ConfigureAwait (false);
 			if (cparam > currentHintingData.ParameterCount && !currentHintingData.IsParameterListAllowed) {
 				// Look for an overload which has more parameters
 				int bestOverload = -1;
@@ -621,7 +658,7 @@ namespace MonoDevelop.Ide.Editor.Extension
 		{
 			base.Initialize ();
 			CompletionWindowManager.WindowClosed += HandleWindowClosed;
-			CompletionWidget = CompletionWidget ?? DocumentContext.GetContent <ICompletionWidget> ();
+			CompletionWidget = CompletionWidget ?? DocumentContext.GetContent<ICompletionWidget> ();           
 			Editor.CaretPositionChanged += HandlePositionChanged;
 //			document.Editor.Paste += HandlePaste;
 			Editor.FocusLost += HandleFocusOutEvent;
@@ -652,9 +689,10 @@ namespace MonoDevelop.Ide.Editor.Extension
 				completionTokenSrc.Cancel ();
 				parameterHintingSrc.Cancel ();
 
-                CompletionWindowManager.HideWindow();
-                ParameterInformationWindowManager.HideWindow(this, CompletionWidget);
-
+				if (CurrentCompletionContext != null) {
+					CompletionWindowManager.HideWindow ();
+					ParameterInformationWindowManager.HideWindow (this, CompletionWidget);
+				}
                 disposed = true;
                 Editor.FocusLost -= HandleFocusOutEvent;
                 //				document.Editor.Paste -= HandlePaste;

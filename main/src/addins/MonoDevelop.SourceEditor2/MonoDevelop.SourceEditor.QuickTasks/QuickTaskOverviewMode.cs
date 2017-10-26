@@ -54,9 +54,20 @@ namespace MonoDevelop.SourceEditor.QuickTasks
 		static Xwt.Drawing.Image warningImage = Xwt.Drawing.Image.FromResource ("issues-warning-16.png");
 		static Xwt.Drawing.Image errorImage = Xwt.Drawing.Image.FromResource ("issues-error-16.png");
 		static Xwt.Drawing.Image suggestionImage = Xwt.Drawing.Image.FromResource ("issues-suggestion-16.png");
+		static Xwt.Drawing.Image hideImage = Xwt.Drawing.Image.FromResource ("issues-hide-16.png");
 
-		public static Xwt.Drawing.Image SuggestionImage {
-			get {
+		public static Xwt.Drawing.Image HideImage
+		{
+			get
+			{
+				return hideImage;
+			}
+		}
+
+		public static Xwt.Drawing.Image SuggestionImage
+		{
+			get
+			{
 				return suggestionImage;
 			}
 		}
@@ -188,6 +199,7 @@ namespace MonoDevelop.SourceEditor.QuickTasks
 
 		protected override void OnDestroyed ()
 		{
+			DisposeProxies();
 			DestroyBackgroundSurface ();
 			RemoveIndicatorIdleHandler ();
 			DestroyIndicatorSwapSurface ();
@@ -1241,8 +1253,8 @@ namespace MonoDevelop.SourceEditor.QuickTasks
 
 		bool FocusNextArea (DirectionType direction)
 		{
-			var hasUsages = usageCache.Count > 0;
-			var hasTasks = taskCache.Count > 0;
+			var hasUsages = usageCache == null ? false : usageCache.Count > 0;
+			var hasTasks = taskCache == null ? false : taskCache.Count > 0;
 
 			switch (currentFocus) {
 			case FocusWidget.None:
@@ -1400,24 +1412,39 @@ namespace MonoDevelop.SourceEditor.QuickTasks
 		}
 
 #region Accessibility
+		List<IQuickTaskAccessible> allyChildren;
+		void DisposeProxies ()
+		{
+			if (allyChildren != null) {
+				foreach (var child in allyChildren)
+					child.Dispose ();
+			}
+			allyChildren = null;
+		}
+
 		public AccessibilityElementProxy[] UpdateAccessibility ()
 		{
-			List<AccessibilityElementProxy> allyChildren = new List<AccessibilityElementProxy> ();
-			allyChildren.Add (new QuickTaskOverviewAccessible (parentStrip, this).Accessible);
+			DisposeProxies ();
+			allyChildren = new List<IQuickTaskAccessible>();
+			allyChildren.Add (new QuickTaskOverviewAccessible (parentStrip, this));
 
 			foreach (var t in AllTasks) {
-				allyChildren.Add (new QuickTaskAccessible (parentStrip, this, t).Accessible);
+				allyChildren.Add (new QuickTaskAccessible (parentStrip, this, t));
 			}
 
 			foreach (var u in AllUsages) {
-				allyChildren.Add (new QuickTaskAccessible (parentStrip, this, u).Accessible);
+				allyChildren.Add (new QuickTaskAccessible (parentStrip, this, u));
 			}
 
-			return allyChildren.ToArray ();
+			return allyChildren.Select (x => x.Accessible).ToArray ();
 		}
 
+		interface IQuickTaskAccessible : IDisposable
+		{
+			AccessibilityElementProxy Accessible { get; }
+		}
 
-		class QuickTaskOverviewAccessible 
+		class QuickTaskOverviewAccessible : IQuickTaskAccessible
 		{
 			public AccessibilityElementProxy Accessible { get; private set; }
 
@@ -1462,9 +1489,14 @@ namespace MonoDevelop.SourceEditor.QuickTasks
 					Accessible.Help = description;
 				}
 			}
+
+			public void Dispose ()
+			{
+				Accessible.PerformPress -= PerformPress;
+			}
 		}
 
-		class QuickTaskAccessible 
+		class QuickTaskAccessible : IQuickTaskAccessible
 		{
 			public AccessibilityElementProxy Accessible { get; private set; }
 			QuickTaskStrip strip;
@@ -1531,6 +1563,11 @@ namespace MonoDevelop.SourceEditor.QuickTasks
 				} else {
 					strip.GotoUsage (usage);
 				}
+			}
+
+			public void Dispose ()
+			{
+				Accessible.PerformPress -= PerformPress;
 			}
 		}
 #endregion

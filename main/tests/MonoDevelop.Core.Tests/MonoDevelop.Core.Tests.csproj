@@ -1,4 +1,4 @@
-﻿<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="..\..\MonoDevelop.props" />
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -34,8 +34,11 @@
     <Reference Include="System.Xml" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="Microsoft.CodeAnalysis.CSharp">
-      <HintPath>..\..\build\bin\Microsoft.CodeAnalysis.CSharp.dll</HintPath>
+      <HintPath>..\..\packages\Microsoft.CodeAnalysis.CSharp.2.3.2\lib\netstandard1.3\Microsoft.CodeAnalysis.CSharp.dll</HintPath>
       <Private>False</Private>
+    </Reference>
+    <Reference Include="System.ValueTuple">
+      <HintPath>..\..\packages\System.ValueTuple.4.3.1\lib\netstandard1.0\System.ValueTuple.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -58,7 +61,6 @@
     <Compile Include="MonoDevelop.Projects\ItemMetadataTests.cs" />
     <Compile Include="MonoDevelop.Projects\LocalCopyTests.cs" />
     <Compile Include="MonoDevelop.Projects\MakefileTests.cs" />
-    <Compile Include="MonoDevelop.Projects\MdsTests.cs" />
     <Compile Include="MonoDevelop.Projects\MSBuildGlobTests.cs" />
     <Compile Include="MonoDevelop.Projects\MSBuildLoggerTests.cs" />
     <Compile Include="MonoDevelop.Projects\MSBuildProjectServiceTests.cs" />
@@ -90,11 +92,14 @@
     <Compile Include="MonoDevelop.Projects\PortableLibraryTests.cs" />
     <Compile Include="MonoDevelop.Projects\GenericProjectTests.cs" />
     <Compile Include="MonoDevelop.Projects\NetStandardProjectTests.cs" />
+    <Compile Include="MonoDevelop.Projects\BuilderManagerTests.cs" />
+    <Compile Include="MonoDevelop.Core.Execution\BinaryMessageTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="MonoDevelop.Core\" />
     <Folder Include="MonoDevelop.Core.Assemblies\" />
     <Folder Include="MonoDevelop.Projects\" />
+    <Folder Include="MonoDevelop.Core.Execution\" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\core\MonoDevelop.Core\MonoDevelop.Core.csproj">
@@ -115,6 +120,9 @@
       <Project>{D12F0F7B-8DE3-43EC-BA49-41052D065A9B}</Project>
       <Name>GuiUnit_NET_4_5</Name>
     </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
 </Project>

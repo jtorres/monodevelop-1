@@ -36,16 +36,13 @@ namespace MonoDevelop.Projects
 	public class ProjectTargetEvaluationTests: TestBase
 	{
 		[Test]
-		[TestCase(true)]
-		[TestCase(false)]
-		public async Task EvaluateUnknownPropertyDuringBuild(bool requiresMSBuild)
+		public async Task EvaluateUnknownPropertyDuringBuild ()
 		{
 			string solFile = Util.GetSampleProject("console-project", "ConsoleProject.sln");
 
 			Solution sol = (Solution)await Services.ProjectService.ReadWorkspaceItem(Util.GetMonitor(), solFile);
 
 			var project = ((Project)sol.Items[0]);
-			project.RequiresMicrosoftBuild = requiresMSBuild;
 
 			var context = new TargetEvaluationContext();
 			context.PropertiesToEvaluate.Add("TestUnknownPropertyToEvaluate");
@@ -88,6 +85,11 @@ namespace MonoDevelop.Projects
 			Assert.AreEqual (1, items.Length);
 			Assert.AreEqual ("bar", items [0].Include);
 			Assert.AreEqual ("Hello", items [0].Metadata.GetValue ("MyMetadata"));
+			if (Runtime.Preferences.BuildWithMSBuild.Value) {
+				// Standard metadata inclusion is only supported via 4.0 API builder
+				Assert.AreEqual ("bar", items [0].Metadata.GetValue ("Filename"));
+				Assert.AreEqual (p.ItemDirectory.Combine ("bar").ToString (), items [0].Metadata.GetValue ("FullPath"));
+			}
 
 			p.Dispose ();
 		}

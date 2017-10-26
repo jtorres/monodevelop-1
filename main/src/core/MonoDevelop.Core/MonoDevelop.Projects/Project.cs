@@ -83,7 +83,6 @@ namespace MonoDevelop.Projects
 			runConfigurations = new RunConfigurationCollection (this);
 			items = new ProjectItemCollection (this);
 			FileService.FileChanged += HandleFileChanged;
-			Runtime.SystemAssemblyService.DefaultRuntimeChanged += OnDefaultRuntimeChanged;
 			files = new ProjectFileCollection ();
 			Items.Bind (files);
 			DependencyResolutionEnabled = true;
@@ -230,13 +229,6 @@ namespace MonoDevelop.Projects
 
 			MSBuildEngineSupport = MSBuildProjectService.GetMSBuildSupportForProject (this);
 			InitFormatProperties ();
-		}
-
-		void OnDefaultRuntimeChanged (object o, EventArgs args)
-		{
-			// If the default runtime changes, the project builder for this project may change
-			// so it has to be created again.
-			CleanupProjectBuilder ();
 		}
 
 		public IEnumerable<string> FlavorGuids {
@@ -410,6 +402,7 @@ namespace MonoDevelop.Projects
 		{
 			if (!Loading) {
 				modifiedInMemory = true;
+				ClearCachedData ().Ignore ();
 			}
 			base.OnModified (args);
 		}
@@ -605,6 +598,7 @@ namespace MonoDevelop.Projects
 					// evaluate the Compile targets
 					var ctx = new TargetEvaluationContext ();
 					ctx.ItemsToEvaluate.Add ("Compile");
+					ctx.BuilderQueue = BuilderQueue.ShortOperations;
 
 					var evalResult = await this.RunTarget (monitor, dependsList, config.Selector, ctx);
 					if (evalResult != null && evalResult.Items != null) {
@@ -662,15 +656,9 @@ namespace MonoDevelop.Projects
 					else
 						await userProject.SaveAsync (userProject.FileName);
 				}
-				
-				var pb = GetCachedProjectBuilder ();
-				if (pb != null) {
-					try {
-						await pb.Refresh ();
-					} finally {
-						pb.ReleaseReference ();
-					}
-				}
+
+				await ClearCachedData ();
+				RefreshProjectBuilder ().Ignore ();
 			}
 		}
 
@@ -1038,8 +1026,7 @@ namespace MonoDevelop.Projects
 			}
 
 			FileService.FileChanged -= HandleFileChanged;
-			Runtime.SystemAssemblyService.DefaultRuntimeChanged -= OnDefaultRuntimeChanged;
-			CleanupProjectBuilder ();
+			RemoteBuildEngineManager.UnloadProject (FileName).Ignore ();
 
 			if (sourceProject != null) {
 				sourceProject.Dispose ();
@@ -1190,7 +1177,8 @@ namespace MonoDevelop.Projects
 		async Task<TargetEvaluationResult> RunMSBuildTarget (ProgressMonitor monitor, string target, ConfigurationSelector configuration, TargetEvaluationContext context)
 		{
 			if (CheckUseMSBuildEngine (configuration)) {
-				var configs = GetConfigurations (configuration);	
+				var includeReferencedProjects = context != null ? context.LoadReferencedProjects : false;
+				var configs = GetConfigurations (configuration, includeReferencedProjects);	
 
 				string [] evaluateItems = context != null ? context.ItemsToEvaluate.ToArray () : new string [0];
 				string [] evaluateProperties = context != null ? context.PropertiesToEvaluate.ToArray () : new string [0];
@@ -1206,48 +1194,30 @@ namespace MonoDevelop.Projects
 				MSBuildResult result = null;
 				await Task.Run (async delegate {
 
-					bool operationRequiresExclusiveLock = false;
+					bool operationRequiresExclusiveLock = context.BuilderQueue == BuilderQueue.LongOperations;
 					TimerCounter buildTimer = null;
 					switch (target) {
-					case "Build": buildTimer = Counters.BuildMSBuildProjectTimer; operationRequiresExclusiveLock = true; break;
-					case "Clean": buildTimer = Counters.CleanMSBuildProjectTimer; operationRequiresExclusiveLock = true; break;
+					case "Build": buildTimer = Counters.BuildMSBuildProjectTimer; break;
+					case "Clean": buildTimer = Counters.CleanMSBuildProjectTimer; break;
 					}
 
 					var t1 = Counters.RunMSBuildTargetTimer.BeginTiming (GetProjectEventMetadata (configuration));
 					var t2 = buildTimer != null ? buildTimer.BeginTiming (GetProjectEventMetadata (configuration)) : null;
 
-					bool newBuilderRequested = false;
-
-					RemoteProjectBuilder builder = await GetProjectBuilder ().ConfigureAwait (false);
-
-					// If the builder requires an exclusive lock and it is busy, create a new locked builder.
-					// Fast operations that don't require an exclusive lock can use any builder, either locked or not
-
-					if (builder.IsBusy && operationRequiresExclusiveLock) {
-						builder.ReleaseReference ();
-						newBuilderRequested = true;
-						builder = await RequestLockedBuilder ().ConfigureAwait (false);
-					}
-					else
-						builder.Lock ();
+					IRemoteProjectBuilder builder = await GetProjectBuilder (monitor.CancellationToken, context, setBusy:operationRequiresExclusiveLock).ConfigureAwait (false);
 
 					string [] targets;
 					if (target.IndexOf (';') != -1)
 						targets = target.Split (new [] { ';' }, StringSplitOptions.RemoveEmptyEntries);
 					else
 						targets = new string [] { target };
+
+					var logger = context.Loggers.Count != 1 ? new ProxyLogger (this, context.Loggers) : context.Loggers.First ();
 					
 					try {
-						result = await builder.Run (configs, monitor.Log, new ProxyLogger (this, context.Loggers), context.LogVerbosity, targets, evaluateItems, evaluateProperties, globalProperties, monitor.CancellationToken).ConfigureAwait (false);
+						result = await builder.Run (configs, monitor.Log, logger, context.LogVerbosity, targets, evaluateItems, evaluateProperties, globalProperties, monitor.CancellationToken).ConfigureAwait (false);
 					} finally {
-						builder.Unlock ();
-						builder.ReleaseReference ();
-						if (newBuilderRequested) {
-							// Dispose the builder after a while, so that it can be reused
-							#pragma warning disable 4014
-							Task.Delay (10000).ContinueWith (t => builder.Dispose ());
-							#pragma warning restore 4014
-						}
+						builder.Dispose ();
 						t1.End ();
 						if (t2 != null)
 							t2.End ();
@@ -1258,7 +1228,7 @@ namespace MonoDevelop.Projects
 				foreach (var err in result.Errors) {
 					FilePath file = null;
 					if (err.File != null)
-						file = Path.Combine (Path.GetDirectoryName (err.ProjectFile), err.File);
+						file = Path.Combine (Path.GetDirectoryName (err.ProjectFile ?? ItemDirectory.ToString ()), err.File);
 
 					br.Append (new BuildError (file, err.LineNumber, err.ColumnNumber, err.Code, err.Message) {
 						Subcategory = err.Subcategory,
@@ -1296,7 +1266,7 @@ namespace MonoDevelop.Projects
 				return new TargetEvaluationResult (br, evItems, props);
 			}
 			else {
-				CleanupProjectBuilder ();
+				RemoteBuildEngineManager.UnloadProject (FileName).Ignore ();
 				if (this is DotNetProject) {
 					var handler = new MonoDevelop.Projects.MD1.MD1DotNetProjectHandler ((DotNetProject)this);
 					return new TargetEvaluationResult (await handler.RunTarget (monitor, target, configuration));
@@ -1410,16 +1380,10 @@ namespace MonoDevelop.Projects
 
 		#region Project builder management
 
-		RemoteProjectBuilder projectBuilder;
-		string lastBuildToolsVersion;
-		string lastBuildRuntime;
-		string lastFileName;
-		string lastSlnFileName;
 		AsyncCriticalSection builderLock = new AsyncCriticalSection ();
 
-		internal async Task<RemoteProjectBuilder> GetProjectBuilder ()
+		internal async Task<IRemoteProjectBuilder> GetProjectBuilder (CancellationToken token, OperationContext context, bool setBusy = false, bool allowBusy = false)
 		{
-			//FIXME: we can't really have per-project runtimes, has to be per-solution
 			TargetRuntime runtime = null;
 			var ap = this as IAssemblyProject;
 			runtime = ap != null ? ap.TargetRuntime : Runtime.SystemAssemblyService.CurrentRuntime;
@@ -1427,39 +1391,24 @@ namespace MonoDevelop.Projects
 			var sln = ParentSolution;
 			var slnFile = sln != null ? sln.FileName : null;
 
-			RemoteProjectBuilder result = null;
+			// Extract the session ID from the current build context, if there is one
+			object buildSessionId = null;
+			if (context != null)
+				context.SessionData.TryGetValue (MSBuildSolutionExtension.MSBuildProjectOperationId, out buildSessionId);
 
-			using (await builderLock.EnterAsync ()) {
-				bool refAdded = false;
-				if (projectBuilder == null || !(refAdded = projectBuilder.AddReference ()) || lastBuildToolsVersion != ToolsVersion || lastBuildRuntime != runtime.Id || lastFileName != FileName || lastSlnFileName != slnFile) {
-					if (projectBuilder != null && refAdded) {
-						projectBuilder.Shutdown ();
-						projectBuilder.ReleaseReference ();
-					}
-					var pb = await MSBuildProjectService.GetProjectBuilder (runtime, ToolsVersion, FileName, slnFile, 0, RequiresMicrosoftBuild);
-					pb.AddReference ();
-					pb.Disconnected += delegate {
-						CleanupProjectBuilder ();
-					};
-					projectBuilder = pb;
-					lastBuildToolsVersion = ToolsVersion;
-					lastBuildRuntime = runtime.Id;
-					lastFileName = FileName;
-					lastSlnFileName = slnFile;
+			var builder = await RemoteBuildEngineManager.GetRemoteProjectBuilder (FileName, slnFile, runtime, ToolsVersion, RequiresMicrosoftBuild, buildSessionId, setBusy, allowBusy);
+
+			if (modifiedInMemory) {
+				modifiedInMemory = false;
+				string content = await WriteProjectAsync (new ProgressMonitor ());
+				try {
+					await RemoteBuildEngineManager.RefreshProjectWithContent (FileName, content);
+				} catch {
+					builder.Dispose ();
+					throw;
 				}
-				if (modifiedInMemory) {
-					try {
-						modifiedInMemory = false;
-						string content = await WriteProjectAsync (new ProgressMonitor ());
-						await projectBuilder.RefreshWithContent (content);
-					} catch {
-						projectBuilder.ReleaseReference ();
-						throw;
-					}
-				}
-				result = projectBuilder;
 			}
-			return result;
+			return builder;
 		}
 
 		void GetReferencedSDKs (Project project, ref HashSet<string> sdks, HashSet<string> traversedProjects)
@@ -1488,57 +1437,14 @@ namespace MonoDevelop.Projects
 			}
 		}
 
-		RemoteProjectBuilder GetCachedProjectBuilder ()
-		{
-			var pb = projectBuilder;
-			if (pb != null && pb.AddReference ())
-				return pb;
-			return null;
-		}
-
-		async Task<RemoteProjectBuilder> RequestLockedBuilder ()
-		{
-			TargetRuntime runtime = null;
-			var ap = this as IAssemblyProject;
-			runtime = ap != null ? ap.TargetRuntime : Runtime.SystemAssemblyService.CurrentRuntime;
-
-			var sln = ParentSolution;
-			var slnFile = sln != null ? sln.FileName : null;
-
-			var pb = await MSBuildProjectService.GetProjectBuilder (runtime, ToolsVersion, FileName, slnFile, 0, RequiresMicrosoftBuild, true);
-			pb.AddReference ();
-			if (modifiedInMemory) {
-				try {
-					string content = await WriteProjectAsync (new ProgressMonitor ());
-					await pb.RefreshWithContent (content);
-				} catch {
-					pb.Dispose ();
-					throw;
-				}
-			}
-			return pb;
-		}
-
-		void CleanupProjectBuilder ()
-		{
-			var pb = GetCachedProjectBuilder ();
-			if (pb != null) {
-				pb.Shutdown ();
-				pb.ReleaseReference ();
-			}
-		}
-
 		public Task RefreshProjectBuilder ()
 		{
-			var pb = GetCachedProjectBuilder ();
-			if (pb != null)
-				return pb.Refresh ().ContinueWith (t => pb.ReleaseReference ());
-			return Task.FromResult (true);
+			return RemoteBuildEngineManager.RefreshProject (FileName);
 		}
 
 		public void ReloadProjectBuilder ()
 		{
-			CleanupProjectBuilder ();
+			RemoteBuildEngineManager.RefreshProject (FileName).Ignore ();
 		}
 
 		#endregion
@@ -1706,6 +1612,8 @@ namespace MonoDevelop.Projects
 			StringParserService.Properties["Project"] = Name;
 			
 			if (UsingMSBuildEngine (configuration)) {
+				// Build is always a long operation. Make sure we build the project in the right builder.
+				context.BuilderQueue = BuilderQueue.LongOperations;
 				var result = await RunMSBuildTarget (monitor, "Build", configuration, context);
 				if (!result.BuildResult.Failed)
 					SetFastBuildCheckClean (configuration, context);
@@ -2070,6 +1978,8 @@ namespace MonoDevelop.Projects
 			}
 			
 			if (UsingMSBuildEngine (configuration)) {
+				// Clean is considered a long operation. Make sure we build the project in the right builder.
+				context.BuilderQueue = BuilderQueue.LongOperations;
 				return await RunMSBuildTarget (monitor, "Clean", configuration, context);
 			}
 			
@@ -3321,13 +3231,16 @@ namespace MonoDevelop.Projects
 					if (!it.IsWildcardItem || it.ParentProject == msproject) {
 						msproject.RemoveItem (it);
 
+						if (!UseAdvancedGlobSupport)
+							continue;
+
 						var file = loadedProjectItems.FirstOrDefault (i => {
 							return i.ItemName == it.Name && (i.Include == it.Include || i.Include == it.Update);
 						}) as ProjectFile;
-						if (file != null) {
+						if (file != null && !file.IsLink) {
 							if (File.Exists (file.FilePath)) {
 								AddRemoveItemIfMissing (msproject, file);
-							} else {
+							} else if (!string.IsNullOrEmpty (it.Include)) {
 								// Remove any "Remove" items that match if the file has been deleted.
 								var toRemove = msproject.GetAllItems ().Where (i => i.Remove == it.Include).ToList ();
 								foreach (var item in toRemove) {
@@ -3390,6 +3303,7 @@ namespace MonoDevelop.Projects
 
 			MSBuildItem buildItem = null;
 			IEnumerable<MSBuildItem> sourceItems = null;
+			MSBuildEvaluationContext context = null;
 
 			if (item.BackingItem?.ParentObject != null && item.BackingItem.Name == item.ItemName) {
 				buildItem = item.BackingItem;
@@ -3408,8 +3322,9 @@ namespace MonoDevelop.Projects
 					var globItem = matchingGlobItems.FirstOrDefault (gi => gi.Name == item.ItemName);
 
 					if (globItem != null) {
+						var updateGlobItems = msproject.FindUpdateGlobItemsIncludingFile (item.Include, globItem).ToList ();
 						// Globbing magic can only be done if there is no metadata (for now)
-						if (globItem.Metadata.GetProperties ().Count () == 0) {
+						if (globItem.Metadata.GetProperties ().Count () == 0 && !updateGlobItems.Any ()) {
 							var it = new MSBuildItem (item.ItemName);
 							item.Write (this, it);
 							if (it.Metadata.GetProperties ().Count () == 0)
@@ -3439,6 +3354,13 @@ namespace MonoDevelop.Projects
 								buildItem = new MSBuildItem (item.ItemName) { Update = item.Include };
 								msproject.AddItem (buildItem);
 							}
+						} else if (updateGlobItems.Any ()) {
+							// Multiple update items not supported yet.
+							buildItem = updateGlobItems [0];
+							sourceItems = new [] { globItem, buildItem };
+							context = CreateEvaluationContext (item);
+						} else {
+							buildItem = globItem;
 						}
 					} else if (item.IsFromWildcardItem && item.ItemName != item.WildcardItem.Name) {
 						include = item.Include;
@@ -3447,8 +3369,10 @@ namespace MonoDevelop.Projects
 					}
 
 					// Add remove item if file is included in a glob with a different MSBuild item type.
+					// But do not add the remove item if the item is already removed with another glob.
 					var removeGlobItem = matchingGlobItems.FirstOrDefault (gi => gi.Name != item.ItemName);
-					if (removeGlobItem != null) {
+					var alreadyRemovedGlobItem = matchingGlobItems.FirstOrDefault (gi => gi.Name == item.ItemName);
+					if (removeGlobItem != null && alreadyRemovedGlobItem == null) {
 						// Do not add the remove item if one already exists or if the Items contains
 						// an include for the item.
 						if (!msproject.GetAllItems ().Any (it => it.Name == removeGlobItem.Name && it.Remove == item.Include) &&
@@ -3461,7 +3385,7 @@ namespace MonoDevelop.Projects
 				if (buildItem == null)
 					buildItem = msproject.AddNewItem (item.ItemName, include);
 				item.BackingItem = buildItem;
-				item.BackingEvalItem = CreateFakeEvaluatedItem (msproject, buildItem, include, sourceItems);
+				item.BackingEvalItem = CreateFakeEvaluatedItem (msproject, buildItem, include, sourceItems, context);
 			}
 
 			loadedItems.Add (buildItem);
@@ -3690,7 +3614,18 @@ namespace MonoDevelop.Projects
 			return true;
 		}
 
-		IMSBuildItemEvaluated CreateFakeEvaluatedItem (MSBuildProject msproject, MSBuildItem item, string include, IEnumerable<MSBuildItem> sourceItems)
+		MSBuildEvaluationContext CreateEvaluationContext (ProjectItem item)
+		{
+			if (item is ProjectFile file) {
+				var context = new MSBuildEvaluationContext ();
+				context.SetItemContext (item.Include, file.FilePath, null);
+				return context;
+			}
+
+			return null;
+		}
+
+		IMSBuildItemEvaluated CreateFakeEvaluatedItem (MSBuildProject msproject, MSBuildItem item, string include, IEnumerable<MSBuildItem> sourceItems, MSBuildEvaluationContext context = null)
 		{
 			// Create the item
 			var eit = new MSBuildItemEvaluated (msproject, item.Name, item.Include, include);
@@ -3698,8 +3633,15 @@ namespace MonoDevelop.Projects
 			// Copy the metadata
 			var md = new Dictionary<string, IMSBuildPropertyEvaluated> ();
 			var col = (MSBuildPropertyGroupEvaluated)eit.Metadata;
-			foreach (var p in item.Metadata.GetProperties ())
-				md [p.Name] = new MSBuildPropertyEvaluated (msproject, p.Name, p.UnevaluatedValue, p.Value);
+			foreach (var p in item.Metadata.GetProperties ()) {
+				// Use evaluated value for value and unevaluated value. Otherwise
+				// an Update item will be generated for a '%(FileName)' property
+				// when GenerateItemDiff is called since it compares the value with
+				// the unevaluated value. If the project file is loaded from disk
+				// the unevaluated value would be the evaluated filename.
+				string evaluatedValue = context?.EvaluateString (p.Value) ?? p.Value;
+				md [p.Name] = new MSBuildPropertyEvaluated (msproject, p.Name, evaluatedValue, evaluatedValue);
+			}
 			((MSBuildPropertyGroupEvaluated)eit.Metadata).SetProperties (md);
 			if (sourceItems != null) {
 				foreach (var s in sourceItems)
@@ -3767,6 +3709,7 @@ namespace MonoDevelop.Projects
 			return BindTask (ct => Runtime.RunInMainThread (async () => {
 				using (await writeProjectLock.EnterAsync ()) {
 					var oldCapabilities = new HashSet<string> (projectCapabilities);
+					bool oldSupportsExecute = SupportsExecute ();
 
 					try {
 						IsReevaluating = true;
@@ -3792,8 +3735,31 @@ namespace MonoDevelop.Projects
 						NotifyProjectCapabilitiesChanged ();
 
 					NotifyExecutionTargetsChanged (); // Maybe...
+
+					if (oldSupportsExecute != SupportsExecute ()) {
+						OnSupportsExecuteChanged (!oldSupportsExecute);
+					}
 				}
 			}));
+		}
+
+		/// <summary>
+		/// If the project's SupportsExecute has changed then check if the solution's startup
+		/// configuration needs to be refreshed. If the solution has no startup item and
+		/// the project can now be executed then refresh the startup configuration since a
+		/// startup item can now be set for the solution. If the solution's startup item is
+		/// this project and can no longer be executed then refresh the startup configuration
+		/// so another startup item can be selected.
+		/// </summary>
+		void OnSupportsExecuteChanged (bool supportsExecute)
+		{
+			if (ParentSolution == null)
+				return;
+
+			if ((!supportsExecute && ParentSolution.StartupItem == this) ||
+				(supportsExecute && ParentSolution.StartupConfiguration == null)) {
+				ParentSolution.RefreshStartupConfiguration ();
+			}
 		}
 
 		protected virtual async Task OnReevaluateProject (ProgressMonitor monitor)
