@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.Composition;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -10,6 +11,7 @@ using Microsoft.CodeAnalysis.Text;
 
 namespace MonoDevelop.Ide.Composition
 {
+	[Export(typeof(IInlineRenameService))]
 	internal class InlineRenameService : IInlineRenameService
 	{
 		public IInlineRenameSession ActiveSession => null;
