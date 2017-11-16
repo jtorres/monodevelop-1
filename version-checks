@@ -17,8 +17,8 @@ DEP[0]=md-addins
 DEP_NAME[0]=MDADDINS
 DEP_PATH[0]=${top_srcdir}/../md-addins
 DEP_MODULE[0]=git@github.com:xamarin/md-addins.git
-DEP_NEEDED_VERSION[0]=2546283b2203300fb58cc2793022752e5859ebed
-DEP_BRANCH_AND_REMOTE[0]="d15-5 origin/d15-5"
+DEP_NEEDED_VERSION[0]=c2e16ca87e68d6df76e884a0ee36400fca709892
+DEP_BRANCH_AND_REMOTE[0]="d15-5-android-uninstall-set-adbtarget origin/d15-5-android-uninstall-set-adbtarget"
 
 # heap-shot
 DEP[1]=heap-shot
