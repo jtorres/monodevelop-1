@@ -37,7 +37,7 @@ using MonoDevelop.Ide.Gui;
 
 namespace MonoDevelop.Components.DockNotebook
 {
-	class DockNotebookTab: IAnimatable, IDisposable
+	class DockNotebookTab: CanvasElement, IAnimatable, IDisposable
 	{
 		internal static Xwt.Drawing.Image tabActiveBackImage = Xwt.Drawing.Image.FromResource ("tabbar-active.9.png");
 		internal static Xwt.Drawing.Image tabBackImage = Xwt.Drawing.Image.FromResource ("tabbar-inactive.9.png");
@@ -62,7 +62,7 @@ namespace MonoDevelop.Components.DockNotebook
 		Widget content;
 
 		Gdk.Rectangle allocation;
-		internal Gdk.Rectangle Allocation {
+		public override Gdk.Rectangle Allocation {
 			get {
 				return allocation;
 			}
@@ -251,11 +251,21 @@ namespace MonoDevelop.Components.DockNotebook
 			button.ShowMenu += (sender, e) => AccessibilityShowMenu?.Invoke (sender, EventArgs.Empty);
 			button.Pressed += (sender, e) => {
 				if (e == CloseButtonIdentifier) {
-					AccessibilityPressCloseButton?.Invoke (sender, EventArgs.Empty);
+					AccessibilityPressCloseButton?.Invoke (this, EventArgs.Empty);
+					OnNeedsRedraw ();
 				}
 			};
+
+			button.NeedsRedraw += (s,e) => OnNeedsRedraw ();
+
 			Accessible.AddAccessibleChild (button.AccessibilityElement);
 			Buttons.Add (button);
+			Children.Add (button);
+		}
+
+		protected override void OnButtonReleaseEvent (object sender, EventArgs evnt)
+		{
+			base.OnButtonReleaseEvent (sender, evnt);
 		}
 
 		internal DockNotebookTabButton GetButton (string identifier)
@@ -314,7 +324,7 @@ namespace MonoDevelop.Components.DockNotebook
 
 				DrawTabBackground (ctx, tabStrip, tabBounds.Width, tabBounds.X, active);
 
-				bool drawButtons = active || focused || tabStrip.IsElementHovered (tab);
+				bool drawButtons = active || focused || tab.IsHovered;
 				if (drawButtons) {
 					tab.Buttons.ForEach (btn => buttonRenderer.Draw (ctx, btn, tab, tabStrip, closeButtonAllocation));
 				}

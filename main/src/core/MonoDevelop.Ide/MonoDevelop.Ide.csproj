@@ -9622,6 +9622,8 @@
     <Compile Include="MonoDevelop.Ide.Templates\OrFileTemplateCondition.cs" />
     <Compile Include="MonoDevelop.Components.DockNotebook\DockNotebookTabButton.cs" />
     <Compile Include="MonoDevelop.Components.DockNotebook\DragDockNotebookTabManager.cs" />
+    <Compile Include="MonoDevelop.Components\CanvasElement.cs" />
+    <Compile Include="MonoDevelop.Components\EventArgs.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Makefile.am" />
