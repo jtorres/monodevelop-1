@@ -218,8 +218,8 @@ namespace MonoDevelop.VersionControl.Views
 		
 		TreeIter AppendFileInfo (ChangeSetItem n)
 		{
-			Xwt.Drawing.Image statusicon = VersionControlService.LoadIconForStatus(n.Status);
-			string lstatus = VersionControlService.GetStatusLabel (n.Status);
+			Xwt.Drawing.Image statusicon = n.Status.Icon;
+			string lstatus = n.Status.Label;
 			
 			string scolor = null;
 			

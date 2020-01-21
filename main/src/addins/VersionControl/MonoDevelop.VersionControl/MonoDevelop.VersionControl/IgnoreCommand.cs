@@ -110,7 +110,7 @@ namespace MonoDevelop.VersionControl
 				if (test) {
 					foreach (var item in items) {
 						var info = await item.GetVersionInfoAsync (cancellationToken);
-						if ((info.Status & (VersionStatus.ScheduledIgnore | VersionStatus.Ignored)) == VersionStatus.Unversioned)
+						if (!info.Status.IsTracked)
 							return false;
 					}
 					return true;

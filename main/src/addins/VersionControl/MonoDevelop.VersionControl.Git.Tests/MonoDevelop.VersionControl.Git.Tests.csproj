@@ -23,10 +23,14 @@
     <Reference Include="System" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="BaseGitRepositoryTests.cs" />
-    <Compile Include="BaseRepositoryTests.cs" />
+    <Compile Include="BaseGitUtilsTest.cs" />
+    <Compile Include="BaseRepoUtilsTest.cs" />
     <Compile Include="GitIntegrityTests.cs" />
     <Compile Include="EditorCompareWidgetBaseTest.cs" />
+    <Compile Include="GitStatusTests.cs" />
+    <Compile Include="HistoryTests.cs" />
+    <Compile Include="AbstractGitTests.cs" />
+    <Compile Include="GitBranchTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\core\MonoDevelop.Core\MonoDevelop.Core.csproj">
@@ -55,6 +59,11 @@
     <ProjectReference Include="..\..\MonoDevelop.SourceEditor2\MonoDevelop.SourceEditor.csproj">
       <Project>{F8F92AA4-A376-4679-A9D4-60E7B7FBF477}</Project>
       <Name>MonoDevelop.SourceEditor</Name>
+      <Private>False</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\MonoDevelop.VersionControl.Git.ClientLibrary\MonoDevelop.VersionControl.Git.ClientLibrary.csproj">
+      <Project>{7FBB8B40-2B59-4C11-8C51-47C09B67A2B3}</Project>
+      <Name>MonoDevelop.VersionControl.Git.ClientLibrary</Name>
       <Private>False</Private>
     </ProjectReference>
   </ItemGroup>

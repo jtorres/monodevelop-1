@@ -109,10 +109,20 @@ namespace MonoDevelop.VersionControl
 			infoCache = null;
 		}
 
-		ConcurrentExclusiveSchedulerPair scheduler;
+		DedicatedThreadScheduler scheduler;
 
 		TaskFactory exclusiveOperationFactory;
 		protected TaskFactory ExclusiveOperationFactory { get { InitScheduler (); return exclusiveOperationFactory; } }
+
+		protected bool IsVcsThread {
+			get { return Thread.CurrentThread == scheduler.DedicatedThread; }
+		}
+
+		protected void AssertIsVcsThread ()
+		{
+			if (Thread.CurrentThread.ManagedThreadId != scheduler.DedicatedThread.ManagedThreadId)
+				throw new InvalidOperationException ();
+		}
 
 		protected void InitScheduler ()
 		{
@@ -120,16 +130,15 @@ namespace MonoDevelop.VersionControl
 				throw new ObjectDisposedException (nameof (Repository));
 
 			if (scheduler == null) {
-				scheduler = new ConcurrentExclusiveSchedulerPair ();
-				exclusiveOperationFactory = new TaskFactory (scheduler.ExclusiveScheduler);
+				scheduler  = new DedicatedThreadScheduler ("Version Control Thread");
+				exclusiveOperationFactory = new TaskFactory (scheduler);
 			}
 		}
 
 		protected void ShutdownScheduler ()
 		{
 			if (scheduler != null) {
-				scheduler.Complete ();
-				scheduler.Completion.Wait ();
+				scheduler.Dispose ();
 				scheduler = null;
 				exclusiveOperationFactory = null;
 			}
@@ -227,19 +236,19 @@ namespace MonoDevelop.VersionControl
 			bool exists = !vinfo.LocalPath.IsNullOrEmpty && (File.Exists (vinfo.LocalPath) || Directory.Exists (vinfo.LocalPath));
 			if (vinfo.IsVersioned) {
 				operations = VersionControlOperation.Commit | VersionControlOperation.Update;
-				if (!vinfo.HasLocalChange (VersionStatus.ScheduledAdd))
+				if (!vinfo.Status.IsScheduledAdd)
 					operations |= VersionControlOperation.Log;
 
 				if (exists) {
-					if (!vinfo.HasLocalChange (VersionStatus.ScheduledDelete))
+					if (!vinfo.Status.IsScheduledDelete)
 						operations |= VersionControlOperation.Remove;
 					if (vinfo.HasLocalChanges || vinfo.IsDirectory)
 						operations |= VersionControlOperation.Revert;
 				}
 				if (AllowLocking && !vinfo.IsDirectory) {
-					if (!vinfo.HasLocalChanges && (vinfo.Status & VersionStatus.LockOwned) == 0)
+					if (!vinfo.HasLocalChanges && !vinfo.Status.IsLocked)
 						operations |= VersionControlOperation.Lock;
-					if ((vinfo.Status & VersionStatus.LockOwned) != 0)
+					if (vinfo.Status.IsLocked)
 						operations |= VersionControlOperation.Unlock;
 				}
 			}
@@ -323,7 +332,7 @@ namespace MonoDevelop.VersionControl
 							pathsToQuery.Add (path);
 					} else {
 						// If there is no cached status, query it asynchronously
-						vi = new VersionInfo (path, "", Directory.Exists (path), VersionStatus.Versioned, null, VersionStatus.Versioned, null);
+						vi = new VersionInfo (path, "", Directory.Exists (path), VersionStatus.Versioned, null, null);
 						await infoCache.SetStatusAsync (vi, false).ConfigureAwait (false);
 						result.Add (vi);
 						pathsToQuery.Add (path);
@@ -355,6 +364,7 @@ namespace MonoDevelop.VersionControl
 			var result = new List<VersionInfo> ();
 			var pathsToQuery = new List<FilePath> ();
 			bool getVersionInfoFailed = false;
+
 			foreach (var path in paths) {
 				var vi = infoCache.GetStatus (path);
 				if (vi != null) {
@@ -488,6 +498,11 @@ namespace MonoDevelop.VersionControl
 		}
 
 		protected abstract Task<Revision []> OnGetHistoryAsync (FilePath localFile, Revision since, CancellationToken cancellationToken);
+
+		public virtual bool IsFileVisibleInStatusView (VersionInfo vi)
+		{
+			return vi != null && (vi.HasLocalChanges || vi.HasRemoteChanges);
+		}
 
 		/// <summary>
 		/// Returns the versioning status of a set of files or directories

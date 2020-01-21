@@ -29,6 +29,7 @@ using LibGit2Sharp;
 using MonoDevelop.Ide.Projects;
 using MonoDevelop.Ide.Templates;
 using MonoDevelop.Core;
+using System;
 
 namespace MonoDevelop.VersionControl.Git
 {
@@ -62,8 +63,24 @@ namespace MonoDevelop.VersionControl.Git
 
 		void CreateGitRepository (FilePath solutionPath)
 		{
-			using (var repo = GitUtil.Init (solutionPath, null))
-				LibGit2Sharp.Commands.Stage (repo ,"*");
+			using (var repo = GitUtil.Init (solutionPath, null)) {
+				StageDirectories (repo, solutionPath);
+			}
+		}
+
+		static void StageDirectories (LibGit2Sharp.Repository repo, FilePath solutionPath, int depth = 0)
+		{
+			foreach (var file in Directory.GetFiles (solutionPath, "*")) {
+				LibGit2Sharp.Commands.Stage (repo, file);
+			}
+			foreach (var directory in Directory.GetDirectories (solutionPath)) {
+				var name = Path.GetFileName (directory);
+				if (depth == 0) {
+					if (name == ".vs" || name == ".git" || name == "obj" || name == "bin")
+						continue;
+				}
+				StageDirectories (repo, directory, depth + 1);
+			}
 		}
 	}
 }

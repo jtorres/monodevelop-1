@@ -95,7 +95,7 @@ namespace MonoDevelop.VersionControl
 				return;
 
 			if (repo.TryGetVersionInfo (file, out var vi)) {
-				var overlay = VersionControlService.LoadOverlayIconForStatus (vi.Status);
+				var overlay = vi.Status.OverlayIcon;
 				if (overlay != null)
 					nodeInfo.OverlayBottomRight = overlay;
 			}
@@ -125,12 +125,12 @@ namespace MonoDevelop.VersionControl
 				return;
 			Xwt.Drawing.Image overlay = null;
 			if (vinfo == null || !vinfo.IsVersioned) {
-				overlay = VersionControlService.LoadOverlayIconForStatus (VersionStatus.Unversioned);
+				overlay = VersionStatus.Unversioned.OverlayIcon;
 			} else if (vinfo.IsVersioned && !vinfo.HasLocalChanges) {
 				if (!skipVersionedOverlay)
-					overlay = VersionControlService.overlay_controled;
+					overlay = VersionStatus.overlay_controled;
 			} else {
-				overlay = VersionControlService.LoadOverlayIconForStatus (vinfo.Status);
+				overlay = vinfo.Status.OverlayIcon;
 			}
 			if (overlay != null)
 				nodeInfo.OverlayBottomRight = overlay;

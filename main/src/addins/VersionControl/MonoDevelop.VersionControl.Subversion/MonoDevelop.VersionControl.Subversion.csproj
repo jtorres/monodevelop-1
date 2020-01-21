@@ -62,6 +62,7 @@
     <Compile Include="Gui\MonoDevelop.VersionControl.Subversion.Gui.ClientCertificatePasswordDialog.cs" />
     <Compile Include="Gui\MonoDevelop.VersionControl.Subversion.Gui.SslServerTrustDialog.cs" />
     <Compile Include="Gui\MonoDevelop.VersionControl.Subversion.Gui.UserPasswordDialog.cs" />
+    <Compile Include="MonoDevelop.VersionControl.Subversion\SvnVersionStatus.cs" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="MonoDevelop.VersionControl.Subversion.Tests" />
