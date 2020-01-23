@@ -19,11 +19,11 @@ namespace Microsoft.TeamFoundation.GitApi
         {
         }
 
-        internal StashException(string errorText, int exitCode) : base(errorText, exitCode)
+        internal StashException(ExecuteResult executeResult) : base(executeResult)
         {
         }
 
-        internal StashException(string message, string errorText, int exitCode) : base(message, errorText, exitCode)
+        internal StashException(string message, ExecuteResult executeResult) : base(message, executeResult)
         {
         }
 
@@ -35,11 +35,7 @@ namespace Microsoft.TeamFoundation.GitApi
         {
         }
 
-        internal StashException(string message, int exitCode, Exception innerException) : base(message, exitCode, innerException)
-        {
-        }
-
-        internal StashException(string message, int exitCode, string errorText, Exception innerException) : base(message, exitCode, errorText, innerException)
+        internal StashException(string message, ExecuteResult executeResult, Exception innerException) : base(message, executeResult, innerException)
         {
         }
 

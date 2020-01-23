@@ -45,12 +45,12 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message, errorText)
         { }
 
-        internal WorkingDirectoryException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal WorkingDirectoryException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
-        internal WorkingDirectoryException(string message, string errorText, int exitCode)
-            : base(message, errorText, exitCode)
+        internal WorkingDirectoryException(string message, ExecuteResult executeResult)
+            : base(message, executeResult)
         { }
 
         internal WorkingDirectoryException(string message, Exception innerException)
@@ -61,12 +61,8 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message, errorText, innerException)
         { }
 
-        internal WorkingDirectoryException(string message, int exitCode, Exception innerException)
-            : base(message, exitCode, innerException)
-        { }
-
-        internal WorkingDirectoryException(string message, int exitCode, string errorText, Exception innerException)
-            : base(message, exitCode, errorText, innerException)
+        internal WorkingDirectoryException(string message, ExecuteResult executeResult, Exception innerException)
+            : base(message, executeResult, innerException)
         { }
 
         internal WorkingDirectoryException(SerializationInfo info, StreamingContext context)

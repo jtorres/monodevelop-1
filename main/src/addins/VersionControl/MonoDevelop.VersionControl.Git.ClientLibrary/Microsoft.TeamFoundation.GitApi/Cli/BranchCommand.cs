@@ -38,12 +38,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is BranchCreationException))
@@ -90,12 +87,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is BranchCreationException))
@@ -141,12 +135,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is BranchCreationException))
@@ -197,17 +188,14 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        if (exitCode != GitCleanExitCode)
+                        if (executeResult.ExitCode != GitCleanExitCode)
                         {
-                            ParseDeleteErrorText(standardError);
+                            ParseDeleteErrorText(executeResult.ErrorText);
                         }
 
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is ExceptionBase))
@@ -234,12 +222,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is BranchDeletionException))
@@ -266,12 +251,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is BranchDeletionException))
@@ -295,18 +277,15 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        if (exitCode == GitFatalExitCode)
+                        if (executeResult.ExitCode == GitFatalExitCode)
                         {
-                            if (standardError.EndsWith("has no upstream information\n", StringComparison.Ordinal))
+                            if (executeResult.ErrorText.EndsWith("has no upstream information\n", StringComparison.Ordinal))
                                 throw new BranchModificationException(FormattableString.Invariant($"'{branch.FriendlyName}' has no upstream to remove."));
                         }
 
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is BranchModificationException))
@@ -335,12 +314,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (Exception exception) when (!(exception is BranchModificationException))

@@ -15,8 +15,8 @@ namespace Microsoft.TeamFoundation.GitApi
     {
         internal const string ErrorSuffix = " is not possible because you have unmerged files.";
 
-        internal MergeInProgressException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal MergeInProgressException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal MergeInProgressException(SerializationInfo info, StreamingContext context)

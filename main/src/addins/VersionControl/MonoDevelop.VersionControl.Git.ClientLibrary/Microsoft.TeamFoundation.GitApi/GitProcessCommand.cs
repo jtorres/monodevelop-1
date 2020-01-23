@@ -36,8 +36,8 @@ namespace Microsoft.TeamFoundation.GitApi
         new public IProcess CreateProcess(string command)
             => base.CreateProcess(command);
 
-        new public int Execute(string command, out string standardError, out string standardOutput)
-            => base.Execute(command, out standardError, out standardOutput);
+        new public ExecuteResult Execute(string command, out string standardOutput)
+            => base.Execute(command, out standardOutput);
 
         new internal void ExecuteProgress(string command, IOperation progress)
             => base.ExecuteProgress(command, progress);

@@ -359,6 +359,8 @@
     <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\StringExt.cs" />
     <Compile Include="Microsoft.TeamFoundation.GitApi\Configuration.cs" />
     <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ArgumentList.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ProcessTextTracker.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ExecuteResult.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Microsoft.TeamFoundation.GitApi\MS.TF.GitApi.csproj" />

@@ -35,8 +35,8 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message)
         { }
 
-        internal RevisionException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal RevisionException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal RevisionException(string message, Exception innerException)
@@ -58,8 +58,8 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message)
         { }
 
-        internal BadRevisionException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal BadRevisionException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal BadRevisionException(string message, Exception innerException)

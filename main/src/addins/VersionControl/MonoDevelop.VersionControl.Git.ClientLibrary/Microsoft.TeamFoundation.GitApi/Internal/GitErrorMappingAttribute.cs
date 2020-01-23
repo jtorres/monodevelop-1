@@ -31,7 +31,7 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
         /// <param name="exitCode">The git.exe exit code</param>
         /// <param name="errorMessage">The error message from git.exe</param>
         /// <returns>A newly constructed <see cref="System.Exception"> of the correct type</see>/></returns>
-        public abstract System.Exception CreateException(int exitCode, string errorMessage);
+        public abstract System.Exception CreateException(ExecuteResult exitCode);
 
         static IReadOnlyDictionary<Type, GitErrorMappingAttributeBase[]> errorToExceptionMappings;
         public static IEnumerable<GitErrorMappingAttributeBase> GetMappings(Type type)
@@ -85,7 +85,7 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
         /// </summary>
         public string Suffix { get; set; }
 
-        private readonly Func<string, int, System.Exception> newFunc;
+        private readonly Func<ExecuteResult, System.Exception> newFunc;
 
         /// <summary>
         /// Construct an instance of the attribute
@@ -103,12 +103,11 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
             this.newFunc = GenerateInstantiator(exceptionType);
         }
 
-        private static readonly ParameterExpression ExitCodeParam = Expression.Parameter(typeof(int), "exitCode");
-        private static readonly ParameterExpression MessageParam = Expression.Parameter(typeof(string), "message");
+        private static readonly ParameterExpression ExecuteResultParam = Expression.Parameter(typeof(ExecuteResult), "executeResult");
         private static readonly ParameterExpression TypeParam = Expression.Parameter(typeof(Type), "exceptionType");
-        private static readonly ParameterExpression[] ConstructorParams = new ParameterExpression[] { MessageParam, ExitCodeParam };
-
-        private static Func<string, int, System.Exception> GenerateInstantiator(Type exceptionType)
+        private static readonly ParameterExpression[] ConstructorParams = new ParameterExpression[] { ExecuteResultParam };
+        
+        private static Func<ExecuteResult, System.Exception> GenerateInstantiator(Type exceptionType)
         {
             const BindingFlags BindConstructor = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.CreateInstance;
 
@@ -118,14 +117,13 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
             var constructorInfo = constructors.FirstOrDefault(ci =>
             {
                 ParameterInfo[] parms = ci.GetParameters();
-                // Is it a (string errorText, int exitCode) constructor?
-                return parms.Length == 2
-                    && parms[0].ParameterType == typeof(string) && string.Equals(parms[0].Name, "errorText", StringComparison.Ordinal)
-                    && parms[1].ParameterType == typeof(int) && string.Equals(parms[1].Name, "exitCode", StringComparison.Ordinal);
+                // Is it a (ExecuteResult executeResult) constructor?
+                return parms.Length == 1
+                    && parms[0].ParameterType == typeof(ExecuteResult) && string.Equals(parms[0].Name, "executeResult", StringComparison.Ordinal);
             });
             if (constructorInfo == null)
             {
-                // No (string errorText, int exitCode) constructor, look for standard string message constructor
+                // No (ExecuteResult executeResult) constructor, look for standard string message constructor
                 constructorInfo = constructors.FirstOrDefault(ci =>
                 {
                     ParameterInfo[] parms = ci.GetParameters();
@@ -141,15 +139,28 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
                         // It indicates a coding error, but will be caught by any test that generates a git error.
                         throw new ArgumentException($"{exceptionType.Name} does not implement any of the required constructors");
                     }
+                    return (ExecuteResult result) => {
+                        return (Exception)constructorInfo.Invoke(null);
+                    };
                 }
+                return (ExecuteResult result) => {
+                    return (Exception)constructorInfo.Invoke(new object[] { result.ToString () });
+                };
             }
 
             // Create a compiled expression that constructs an instance of the exception type invoking the most
             // specific constructor available with the correct number of arguments.
-            return Expression.Lambda<Func<string, int, Exception>>(
-                Expression.New(constructorInfo, ConstructorParams.Take(constructorInfo.GetParameters().Length)),
-                MessageParam, ExitCodeParam
-            ).Compile();
+            try
+            {
+                return Expression.Lambda<Func<ExecuteResult, Exception>>(
+                    Expression.New(constructorInfo, ConstructorParams.Take(constructorInfo.GetParameters().Length)),
+                    ExecuteResultParam
+                ).Compile();
+            }
+            catch (Exception e)
+            {
+                throw new GitException($"Can't construct {constructorInfo.DeclaringType} : {e.Message}");
+            }
         }
 
         /// <summary>
@@ -167,12 +178,12 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
         /// <summary>
         /// Create a new instance of the exception type associated with this attribute
         /// </summary>
-        /// <param name="exitCode">The git.exe exit code</param>
+        /// <param name="executeResult">The git.exe exit code</param>
         /// <param name="errorMessage">The error message from git.exe</param>
         /// <returns>A newly constructed <see cref="Exception"> of the correct type</see>/></returns>
-        public override System.Exception CreateException(int exitCode, string errorMessage)
+        public override System.Exception CreateException(ExecuteResult executeResult)
         {
-            return this.newFunc(errorMessage, exitCode);
+            return this.newFunc(executeResult);
         }
     }
 }

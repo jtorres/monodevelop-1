@@ -165,10 +165,10 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
                     var progress = new CloneOperation(Context, progressCallback);
-                    int exitCode = ExecuteProgress(command, progress, cancellationToken);
+                    var executeResult = ExecuteProgress(command, progress, cancellationToken);
                     if (cancellationToken.IsCancellationRequested)
                         return Task.CompletedTask;
-                    TestExitCode(exitCode, $"{nameof(CloneCommand)}.{nameof(ExecuteClone)}");
+                    TestExitCode(executeResult, $"{nameof(CloneCommand)}.{nameof(ExecuteClone)}");
                 }
             }
             catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(CloneCommand)}.{nameof(ExecuteClone)}", exception))

@@ -37,12 +37,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    string standardError;
-                    string standardOutput;
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    int exitCode = Execute(command, out standardError, out standardOutput);
-
-                    TestExitCode(exitCode, command, standardError);
+                    TestExitCode(executeResult, command);
                 }
             }
         }
@@ -437,7 +434,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 return MergeCommandResult.Conflict;
             }
 
-            TestExitCode(exitCode, standardError);
+            TestExitCode(new ExecuteResult (exitCode, standardError), standardError);
             return MergeCommandResult.Undefined;
         }
     }

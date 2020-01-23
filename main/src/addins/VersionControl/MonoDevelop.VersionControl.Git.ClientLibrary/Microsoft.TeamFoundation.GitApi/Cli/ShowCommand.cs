@@ -34,12 +34,11 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     try
                     {
-                        StringUtf8 stderr;
                         StringUtf8 stdout;
 
-                        int exitCode = Execute(command, out stderr, out stdout);
+                        var executeResult = Execute(command, out stdout);
 
-                        if (exitCode == GitCommand.GitCleanExitCode)
+                        if (executeResult.ExitCode == GitCommand.GitCleanExitCode)
                         {
                             const string Prefix = "commit ";
 
@@ -62,7 +61,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             }
                         }
 
-                        TestExitCode(exitCode, command, stderr.ToString());
+                        TestExitCode(executeResult, command);
                     }
                     catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(ShowCommand)}.{nameof(ReadRevision)}", exception, command))
                     {

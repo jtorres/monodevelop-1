@@ -29,41 +29,29 @@ using System.Runtime.Serialization;
 namespace Microsoft.TeamFoundation.GitApi
 {
     [Serializable]
-    public class CherryPickExcpetion : GitException
+    public class CherryPickException : GitException
     {
-        internal CherryPickExcpetion(string message)
-            : base(message)
+        internal CherryPickException(ExecuteResult executeResult)
+            : base(executeResult.ErrorText)
         { }
 
-        internal CherryPickExcpetion(string message, string errorText)
-            : base(message, errorText)
+        internal CherryPickException(string message, ExecuteResult executeResult)
+            : base(message, executeResult)
         { }
 
-        internal CherryPickExcpetion(string message, int exitCode)
-            : base(message, exitCode)
-        { }
-
-        internal CherryPickExcpetion(string message, int exitCode, string errorText)
-            : base(message, errorText, exitCode)
-        { }
-
-        internal CherryPickExcpetion(string message, Exception innerException)
+        internal CherryPickException(string message, Exception innerException)
             : base(message, innerException)
         { }
 
-        internal CherryPickExcpetion(string message, string errorText, Exception innerException)
+        internal CherryPickException(string message, string errorText, Exception innerException)
             : base(message, errorText, innerException)
         { }
 
-        internal CherryPickExcpetion(string message, int exitCode, Exception innerException)
-            : base(message, exitCode, innerException)
+        internal CherryPickException(ExecuteResult executeResult, Exception innerException)
+            : base(executeResult.ErrorText, executeResult, innerException)
         { }
 
-        internal CherryPickExcpetion(string message, int exitCode, string errorText, Exception innerException)
-            : base(message, exitCode, errorText, innerException)
-        { }
-
-        internal CherryPickExcpetion(SerializationInfo info, StreamingContext context)
+        internal CherryPickException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         { }
     }
@@ -72,10 +60,10 @@ namespace Microsoft.TeamFoundation.GitApi
     /// Exception raised when an attempt is made to cherry-pick a merge commit without specifying the parent number.
     /// </summary>
     [Serializable]
-    public class AmbiguousCherryPickOfMergeException : CherryPickExcpetion
+    public class AmbiguousCherryPickOfMergeException : CherryPickException
     {
-        internal AmbiguousCherryPickOfMergeException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal AmbiguousCherryPickOfMergeException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal AmbiguousCherryPickOfMergeException(SerializationInfo info, StreamingContext context)
@@ -84,14 +72,14 @@ namespace Microsoft.TeamFoundation.GitApi
     }
 
     [Serializable]
-    public class CherryPickConflictException : CherryPickExcpetion
+    public class CherryPickConflictException : CherryPickException
     {
-        internal CherryPickConflictException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal CherryPickConflictException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
-        internal CherryPickConflictException(string errorText, int exitCode, Exception innerException)
-            : base(errorText, exitCode, innerException)
+        internal CherryPickConflictException(ExecuteResult executeResult, Exception innerException)
+            : base(executeResult, innerException)
         { }
 
         internal CherryPickConflictException(SerializationInfo info, StreamingContext context)
@@ -100,14 +88,14 @@ namespace Microsoft.TeamFoundation.GitApi
     }
 
     [Serializable]
-    public class CherryPickEmptyException : CherryPickExcpetion
+    public class CherryPickEmptyException : CherryPickException
     {
-        internal CherryPickEmptyException(string errorText, int exitCode)
-            : base(errorText)
+        internal CherryPickEmptyException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
-        internal CherryPickEmptyException(string errorText, int exitCode, Exception innerException)
-            : base(errorText, exitCode, innerException)
+        internal CherryPickEmptyException(ExecuteResult executeResult, Exception innerException)
+            : base(executeResult, innerException)
         { }
 
         internal CherryPickEmptyException(SerializationInfo info, StreamingContext context)

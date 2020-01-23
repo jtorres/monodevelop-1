@@ -174,9 +174,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             {
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = ExecuteProgress(command, rebaseOperation);
+                    var executeResult = ExecuteProgress(command, rebaseOperation);
 
-                    switch (exitCode)
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             return RebaseResult.Completed;
@@ -186,9 +186,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             return RebaseResult.Conflicts;
 
                         default:
-                            TestExitCode(exitCode, command);
+                            TestExitCode(executeResult, command);
                             // above method will throw, this is here to make the compiler happy
-                            throw new GitException(command, exitCode);
+                            throw new GitException(command, executeResult);
                     }
                 }
             }

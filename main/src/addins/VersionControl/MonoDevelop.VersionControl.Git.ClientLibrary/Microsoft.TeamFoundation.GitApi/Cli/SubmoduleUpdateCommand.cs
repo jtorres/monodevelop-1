@@ -93,9 +93,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
                     var progress = new SubmoduleUpdateOperation(Context, progressCallback);
-                    int exitCode = ExecuteProgress(command, progress);
+                    var executeResult = ExecuteProgress(command, progress);
 
-                    TestExitCode(exitCode, command);
+                    TestExitCode(executeResult, command);
                 }
             }
             catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(SubmoduleUpdateCommand)}.{nameof(ExecuteUpdate)}", exception, command))

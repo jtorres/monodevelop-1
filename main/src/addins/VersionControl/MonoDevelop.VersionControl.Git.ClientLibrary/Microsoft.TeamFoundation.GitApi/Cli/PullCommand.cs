@@ -161,16 +161,16 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             {
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = ExecuteProgress(command, progress);
+                    var executeResult = ExecuteProgress(command, progress);
 
                     PullCommandResult result = progress.Result;
 
-                    if (exitCode == 0
-                        || (exitCode == GitErrorExitCode && result == PullCommandResult.Conflict)
-                        || (exitCode == GitErrorExitCode && result == PullCommandResult.RebaseConflicts))
+                    if (executeResult.ExitCode == 0
+                        || (executeResult.ExitCode == GitErrorExitCode && result == PullCommandResult.Conflict)
+                        || (executeResult.ExitCode == GitErrorExitCode && result == PullCommandResult.RebaseConflicts))
                         return result;
 
-                    TestExitCode(exitCode, command);
+                    TestExitCode(executeResult, command);
                 }
             }
             catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(PullCommand)}.{nameof(ExecutePull)}", exception, command))

@@ -118,9 +118,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             {
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = ExecuteProgress(command, revertOperation);
+                    var executeResult = ExecuteProgress(command, revertOperation);
 
-                    switch (exitCode)
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             return RevertResult.Completed;
@@ -129,7 +129,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             return RevertResult.Conflicts;
                     }
 
-                    TestExitCode(exitCode, $"{nameof(RevertCommand)}.{nameof(ExecuteRevert)}");
+                    TestExitCode(executeResult, $"{nameof(RevertCommand)}.{nameof(ExecuteRevert)}");
                 }
             }
             catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(RevertCommand)}.{nameof(ExecuteRevert)}", exception, command))

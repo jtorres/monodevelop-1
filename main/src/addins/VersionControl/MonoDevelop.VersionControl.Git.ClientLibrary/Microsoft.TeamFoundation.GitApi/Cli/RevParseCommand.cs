@@ -28,9 +28,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        int exitCode = Execute(command, out string standardError, out string standardOutput);
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
 
                         string[] lines = standardOutput.Split('\n');
 
@@ -38,9 +38,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                         if (lines.Length < 3)
                         {
                             // If standard error contains a message from git, display it otherwise use the default message.
-                            throw string.IsNullOrWhiteSpace(standardError)
+                            throw string.IsNullOrWhiteSpace(executeResult.ErrorText)
                                 ? new RevParseParseException("split", new StringUtf8(standardOutput), 0)
-                                : new RevParseParseException(standardError, "split", new StringUtf8(standardOutput), 0);
+                                : new RevParseParseException(executeResult.ErrorText, "split", new StringUtf8(standardOutput), 0);
                         }
 
                         string gitDirectory = lines[0];
@@ -104,9 +104,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = Execute(command, out string standardError, out string standardOutput);
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    switch (exitCode)
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             {
@@ -126,7 +126,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                         case GitFatalExitCode:
                             {
-                                if (standardError.StartsWith("fatal: Needed a single revision", StringComparison.Ordinal))
+                                if (executeResult.ErrorText.StartsWith("fatal: Needed a single revision", StringComparison.Ordinal))
                                 {
                                     // When prior to the initial commit, rev-parse fails to
                                     // lookup HEAD.  There may be a valid ref in .git/HEAD,
@@ -139,11 +139,11 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             break;
 
                         default:
-                            TestExitCode(exitCode, command, standardError);
+                            TestExitCode(executeResult, command);
                             break;
                     }
 
-                    throw new GitException(standardError, exitCode);
+                    throw new GitException(executeResult);
                 }
             }
         }
@@ -157,9 +157,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = Execute(command, out string standardError, out string standardOutput);
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    switch (exitCode)
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             {
@@ -168,11 +168,11 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             }
 
                         default:
-                            TestExitCode(exitCode, command, standardError);
+                            TestExitCode(executeResult, command);
                             break;
                     }
 
-                    throw new GitException(standardError, exitCode);
+                    throw new GitException(executeResult);
                 }
             }
         }

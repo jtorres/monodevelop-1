@@ -23,16 +23,15 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             {
                 command.AddOption("--verbose");
 
-                StringUtf8 standardError;
                 StringUtf8 standardOutput;
 
                 using (Tracer.TraceCommand(Command, Command, userData: _userData))
                 {
                     try
                     {
-                        int exitCode = Execute(command, out standardError, out standardOutput);
+                        var executeResult = Execute(command, out standardOutput);
 
-                        TestExitCode(exitCode, command, (string)standardError);
+                        TestExitCode(executeResult, command);
                     }
                     catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(CountObjectsCommand)}.{nameof(GetObjectCounts)}", exception, command))
                     {

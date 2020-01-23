@@ -26,9 +26,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, details: command, userData: _userData))
                 {
-                    int exitCode = Execute(command, out string standardError, out string standardOutput);
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    TestExitCode(exitCode, command, standardError);
+                    TestExitCode(executeResult, command);
                 }
             }
         }
@@ -52,13 +52,13 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                     var operation = new StashApplyOperation(Context, progressCallback);
 
-                    int exitCode = ExecuteProgress(command, operation);
+                    var executeResult = ExecuteProgress(command, operation);
 
                     // When stash apply results in conflicts the error code (exitCode == 1) is expected 
                     // and should not result in an general exception being thrown by TestExitCode.
                     if (operation.NumberOfConflicts == 0)
                     {
-                        TestExitCode(exitCode, command);
+                        TestExitCode(executeResult, command);
                     }
 
                     return operation.UpdatedFiles;
@@ -77,9 +77,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, details: command, userData: _userData))
                 {
-                    int exitCode = Execute(command, out string standardError, out string standardOutput);
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    TestExitCode(exitCode, command, standardError);
+                    TestExitCode(executeResult, command);
                 }
             }
         }
@@ -103,13 +103,13 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                     var operation = new StashApplyOperation(Context, progressCallback);
 
-                    int exitCode = ExecuteProgress(command, operation);
+                    var executeResult = ExecuteProgress(command, operation);
 
                     // When stash pop results in conflicts the error code (exitCode == 1) is expected 
                     // and should not result in an general exception being thrown by TestExitCode.
                     if (operation.NumberOfConflicts == 0)
                     {
-                        TestExitCode(exitCode, command);
+                        TestExitCode(executeResult, command);
                     }
 
                     return operation.UpdatedFiles;
@@ -129,9 +129,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                     // StashPushOperation always gets called to parse (specific error) output.
                     var operation = new StashPushOperation(Context, null);
 
-                    int exitCode = ExecuteProgress(command, operation);
+                    var executeResult = ExecuteProgress(command, operation);
 
-                    TestExitCode(exitCode, "stash push");
+                    TestExitCode(executeResult, "stash push");
                 }
             }
         }

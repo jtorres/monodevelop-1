@@ -29,9 +29,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = Execute(command, out string standardError, out string standardOutput);
-
-                    switch (exitCode)
+                    var executeResult = Execute(command, out string standardOutput);
+                     
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             {
@@ -42,7 +42,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                         case GitFatalExitCode:
                             {
-                                string[] lines = standardError.Split('\n');
+                                string[] lines = executeResult.ErrorText.Split('\n');
 
                                 if (lines[0].StartsWith("fatal: ref HEAD is not a symbolic ref", System.StringComparison.Ordinal))
                                 {
@@ -63,11 +63,11 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             break;
 
                         case GitUsageExitCode:
-                            throw new GitUsageException(exitCode, standardError);
+                            throw new GitUsageException(executeResult);
                     }
 
                     // We've gone this far, then something went wrong...
-                    throw new GitException(standardError, exitCode);
+                    throw new GitException(executeResult);
                 }
             }
         }
@@ -87,9 +87,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = Execute(command, out string standardError, out string standardOutput);
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    switch (exitCode)
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             {
@@ -98,11 +98,11 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             }
 
                         default:
-                            TestExitCode(exitCode, command, standardError);
+                            TestExitCode(executeResult, command);
                             break;
                     }
 
-                    throw new GitException(standardError, exitCode);
+                    throw new GitException(executeResult);
                 }
             }
         }

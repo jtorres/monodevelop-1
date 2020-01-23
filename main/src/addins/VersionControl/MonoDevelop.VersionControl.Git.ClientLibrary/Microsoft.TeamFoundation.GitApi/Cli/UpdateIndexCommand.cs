@@ -89,7 +89,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             Tracer.TraceWarning("Failed to release pipes", "Command: " + command, userData: _userData);
                         }
 
-                        TestExitCode(process.ExitCode, command, standardError);
+                        TestExitCode(new ExecuteResult (process.ExitCode, standardError), command);
                     }
                     catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(UpdateIndexCommand)}.{nameof(Add)}", exception, command))
                     {
@@ -133,7 +133,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             Tracer.TraceWarning("Failed to release pipes", "Command: " + command, userData: _userData);
                         }
 
-                        TestExitCode(process.ExitCode, command);
+                        TestExitCode(new ExecuteResult (process.ExitCode, "error"), command);
                     }
                     catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(UpdateIndexCommand)}.{nameof(SkipWorktreeAdd)}", exception, command))
                     {
@@ -177,7 +177,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             Tracer.TraceWarning("Failed to release pipes", "Command: " + command, userData: _userData);
                         }
 
-                        TestExitCode(process.ExitCode, command);
+                        TestExitCode(new ExecuteResult(process.ExitCode, "error"), command);
                     }
                     catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(UpdateIndexCommand)}.{nameof(SkipWorktreeRemove)}", exception, command))
                     {

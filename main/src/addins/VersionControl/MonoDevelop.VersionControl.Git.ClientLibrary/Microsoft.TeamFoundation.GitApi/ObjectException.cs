@@ -38,8 +38,8 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message, innerException)
         { }
 
-        internal ObjectException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal ObjectException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal ObjectException(SerializationInfo info, StreamingContext context)
@@ -64,8 +64,8 @@ namespace Microsoft.TeamFoundation.GitApi
             ObjectId = objectId;
         }
 
-        internal ObjectMissingException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal ObjectMissingException(ExecuteResult executeResult)
+            : base(executeResult)
         {
             ObjectId = ObjectId.Zero;
         }

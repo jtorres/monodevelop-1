@@ -44,12 +44,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        StringUtf8 standardError;
-                        StringUtf8 standardOut;
+                        var executeResult = Execute(command, out StringUtf8 standardOut);
 
-                        int exitCode = Execute(command, out standardError, out standardOut);
-
-                        TestExitCode(exitCode, command, (string)standardError);
+                        TestExitCode(executeResult, command);
 
                         return standardOut.ToObjectId();
                     }
@@ -82,14 +79,11 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    string standardError;
-                    string standardOut;
+                    var executeResult = Execute(command, out string standardOut);
 
-                    int exitCode = Execute(command, out standardError, out standardOut);
+                    TestExitCode(executeResult, command, 1);
 
-                    TestExitCode(exitCode, command, standardError, 1);
-
-                    return (exitCode == 0);
+                    return (executeResult.ExitCode == 0);
                 }
             }
         }

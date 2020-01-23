@@ -45,12 +45,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitcode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitcode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(InitCommand)}.{nameof(CreateRepository)}", exception, command))
@@ -78,12 +75,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitcode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitcode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(InitCommand)}.{nameof(UpdateRepository)}", exception, command))

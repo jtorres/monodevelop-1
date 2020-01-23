@@ -269,7 +269,7 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
             if (output == OperationOutput.OutputClosed)
             {
                 // We don't report the error as progress. The caller can catch the exception and log as it sees fit.
-                Fault(errorMappingAttribute.CreateException(Cli.GitCommand.GitFatalExitCode, fatalMessage.ToString ()));
+                Fault(errorMappingAttribute.CreateException(new ExecuteResult (Cli.GitCommand.GitFatalExitCode, fatalMessage.ToString ())));
                 return;
             }
             var line = CleanLine(output.Message);

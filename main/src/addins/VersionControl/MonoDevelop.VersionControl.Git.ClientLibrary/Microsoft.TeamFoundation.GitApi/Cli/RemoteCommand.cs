@@ -53,12 +53,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(RemoteCommand)}.{nameof(Add)}", exception, command))
@@ -86,12 +83,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(RemoteCommand)}.{nameof(Prune)}", exception, command))
@@ -263,12 +257,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(RemoteCommand)}.{nameof(Rename)}", exception, command))
@@ -296,12 +287,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(RemoteCommand)}.{nameof(Remove)}", exception, command))
@@ -331,12 +319,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(RemoteCommand)}.{nameof(SetFetchUrl)}", exception, command))
@@ -366,12 +351,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOutput;
+                        var executeResult = Execute(command, out string standardOutput);
 
-                        int exitCode = Execute(command, out standardError, out standardOutput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(RemoteCommand)}.{nameof(SetPushUrl)}", exception, command))

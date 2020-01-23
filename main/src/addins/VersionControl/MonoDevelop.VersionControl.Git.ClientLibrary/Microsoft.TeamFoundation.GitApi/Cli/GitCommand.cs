@@ -108,15 +108,15 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             }
         }
 
-        internal void TestExitCode(int exitCode, string command, string errorText, params int[] safeCodes)
+        internal void TestExitCode(ExecuteResult executeResult, string command, params int[] safeCodes)
         {
             if (string.IsNullOrEmpty(command))
                 throw new ArgumentNullException(nameof(command));
 
-            if (exitCode != GitCleanExitCode && !safeCodes.Contains(exitCode))
+            if (executeResult.ExitCode != GitCleanExitCode && !safeCodes.Contains(executeResult.ExitCode))
             {
                 // Trim off any extra white space picked up from the stderr pipe.
-                errorText = errorText?.Trim();
+                var errorText = executeResult.ErrorText.Trim();
                 // Extract the relevant part of the error message (the first line).
                 string errorMessage = SplitErrorMessageFromText(errorText ?? "");
 
@@ -124,38 +124,28 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     if (attr.IsMatchingError(errorMessage))
                     {
-                        throw attr.CreateException(exitCode, errorText);
+                        throw attr.CreateException(executeResult);
                     }
                 }
 
                 // If no more specific error->exception mapping was found, raise one of the general exceptions
                 // based on the exit code.
-                switch (exitCode)
+                switch (executeResult.ExitCode)
                 {
                     case GitFatalExitCode:
-                        throw new GitFatalException(errorText ?? command);
+                        throw new GitFatalException(executeResult);
                     case GitUsageExitCode:
-                        throw new GitUsageException(errorText ?? command);
+                        throw new GitUsageException(executeResult);
                     default:
-                        throw new GitException(errorText ?? command, exitCode);
+                        throw new GitException(executeResult);
                 }
             }
         }
 
-        internal void TestExitCode(int exitCode, string command, params int[] safeCodes)
-            => TestExitCode(exitCode, command, null as string, safeCodes);
-
         internal void RunAndTestProcess(IProcess process, string command, params int[] safeCodes)
         {
-            var errorBuffer = new StringBuilder();
-
-            process.ProcessOutput += (s, o) => {
-                if (o.Source == OutputSource.Error)
-                {
-                    errorBuffer.AppendLine(o.Message);
-                }
-            };
-
+            var errorTracker = new ProcessTextTracker(trackOutput: false);
+            errorTracker.Track(process);
             const int WaitForStderrResultSeconds = 1;
 
             if (ReferenceEquals(process, null))
@@ -188,14 +178,15 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
              * than 5ms wait), and therefore we should explicitly fail to read the standard error output.
              */
 
-            string standardError = errorBuffer.ToString ();
+            string standardError = errorTracker.Error.ToString ();
 
             if (string.IsNullOrEmpty(standardError))
             {
                 standardError = "Failed to read error message from process";
             }
+            errorTracker.Dispose();
 
-            TestExitCode(process.ExitCode, command, standardError, safeCodes);
+            TestExitCode(new ExecuteResult (process.ExitCode, standardError), command, safeCodes);
         }
 
         internal void TestExitCode (IProcess process, string command, Task<string> stderrReadTask, params int[] safeCodes)
@@ -248,7 +239,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 }
             }
 
-            TestExitCode(process.ExitCode, command, standardError, safeCodes);
+            TestExitCode(new ExecuteResult (process.ExitCode, standardError), command, safeCodes);
         }
 
         internal void TestExitCode(IProcess process, string command, params int[] safeCodes)

@@ -11,24 +11,57 @@ using System.Threading;
 
 namespace Microsoft.TeamFoundation.GitApi.Cli
 {
-    public sealed class ArgumentList : IDisposable
+    class StringBuilderCacheable : IDisposable
     {
         private static readonly System.Collections.Concurrent.ConcurrentBag<StringBuilder> _cache;
 
-        static ArgumentList()
+        static StringBuilderCacheable()
         {
             _cache = new System.Collections.Concurrent.ConcurrentBag<StringBuilder>();
         }
 
-        StringBuilder sb = new StringBuilder();
+        static protected StringBuilder GetStringBuilder ()
+        {
+            if (!_cache.TryTake(out var result))
+            {
+                result = new StringBuilder();
+            }
+            return result;
+        }
+
+        static protected void PutBackStringBuilder(StringBuilder builder)
+        {
+            if (builder is null)
+            {
+                throw new ArgumentNullException(nameof(builder));
+            }
+            builder.Clear();
+            _cache?.Add(builder);
+        }
+
+        #region IDisposable Support
+        private bool isDisposed = false;
+        public bool IsDisposed => isDisposed;
+
+        protected virtual void Dispose(bool disposing)
+        {
+            isDisposed = true;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+        #endregion
+    }
+
+    sealed class ArgumentList : StringBuilderCacheable
+    {
+        StringBuilder sb;
 
         public ArgumentList(string command)
         {
-            if (!_cache.TryTake(out sb))
-            {
-                sb = new StringBuilder();
-            }
-
+            sb = GetStringBuilder();
             sb.Append(command);
         }
 
@@ -96,10 +129,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
         private string Quote(string argument)
         {
-            if (!_cache.TryTake(out var resultBuilder))
-            {
-                resultBuilder = new StringBuilder();
-            }
+            var resultBuilder = GetStringBuilder();
 
             resultBuilder.Append('"');
             foreach (var ch in argument)
@@ -110,8 +140,7 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             }
             resultBuilder.Append('"');
             var result = resultBuilder.ToString();
-            resultBuilder.Clear();
-            _cache?.Add(resultBuilder);
+            PutBackStringBuilder(resultBuilder);
 
             return result;
         }
@@ -134,19 +163,24 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             return argumentList.ToString();
         }
 
-        public void Dispose()
-        {
-            StringBuilder builder;
-            if ((builder = Interlocked.Exchange(ref sb, null)) == null)
-                return;
-            builder.Clear();
-            _cache?.Add(builder);
-        }
-
         public void EndOptions()
         {
             Add("--");
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (!IsDisposed)
+            {
+                if (disposing)
+                {
+                    StringBuilder builder;
+                    if ((builder = Interlocked.Exchange(ref sb, null)) == null)
+                        return;
+                    PutBackStringBuilder(builder);
+                }
+            }
+            base.Dispose(disposing);
+        }
     }
 }

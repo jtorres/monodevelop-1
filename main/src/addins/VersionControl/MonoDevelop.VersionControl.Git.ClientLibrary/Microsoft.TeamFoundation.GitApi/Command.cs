@@ -5,9 +5,11 @@
 //*************************************************************************************************
 
 using System;
+using System.Security.AccessControl;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.TeamFoundation.GitApi.Cli;
 using Microsoft.TeamFoundation.GitApi.Internal;
 
 namespace Microsoft.TeamFoundation.GitApi
@@ -111,20 +113,14 @@ namespace Microsoft.TeamFoundation.GitApi
         /// <param name="standardOutput">If successful, the Utf-16 encoded output of standard output; otherwise <see langword="null"/>.</param>
         /// <returns>The exit code of the process.</returns>
         /// <exception cref="System.TimeoutException">When one, or more, read operations cannot complete after the process has exited.</exception>
-        protected int Execute(string command, out string standardError, out string standardOutput)
+        protected ExecuteResult Execute(string command, out string standardOutput)
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
 
-            StringUtf8 utf8Error;
-            StringUtf8 utf8Output;
-
-            int exitCode = Execute(command, out utf8Error, out utf8Output);
-
-            standardError = (string)utf8Error;
-            standardOutput = (string)utf8Output;
-
-            return exitCode;
+            var executeResult = Execute(command, out StringUtf8 standardOutputUtf8);
+            standardOutput = standardOutputUtf8.ToString();
+            return executeResult;
         }
 
         /// <summary>
@@ -138,38 +134,37 @@ namespace Microsoft.TeamFoundation.GitApi
         /// <param name="standardOutput">If successful, the Utf-8 encoded output of standard output; otherwise <see langword="null"/>.</param>
         /// <returns>The exit code of the process.</returns>
         /// <exception cref="System.TimeoutException">When one, or more, read operations cannot complete after the process has exited.</exception>
-        protected int Execute(string command, out StringUtf8 standardError, out StringUtf8 standardOutput)
+        protected ExecuteResult Execute(string command, out StringUtf8 standardOutput)
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
 
+            using (var processTextTracker = new ProcessTextTracker())
             using (IProcess process = CreateProcess(command, true))
             {
-                var sbOut = new StringBuilder ();
-                var sbErr = new StringBuilder ();
-                process.ProcessOutput += (sender, output) => {
-                    var sb = output.Source == OutputSource.Out ? sbOut : sbErr;
-                    sb.Append (output.Message);
-                    sb.Append ('\n');
-                };
-
+                processTextTracker.Track(process);
                 process.WaitForExit();
-                standardError = new StringUtf8 (sbErr.ToString ());
-                standardOutput = new StringUtf8 (sbOut.ToString ());
-                return process.ExitCode;
+                standardOutput = new StringUtf8(processTextTracker.Output);
+                return new ExecuteResult(process.ExitCode, processTextTracker.Error);
             }
         }
 
-        internal int ExecuteProgress(string command, IOperation progress, CancellationToken cancellationToken = default)
+        
+
+        internal ExecuteResult ExecuteProgress(string command, IOperation progress, CancellationToken cancellationToken = default)
         {
             if (command == null)
                 throw new ArgumentNullException(nameof(command));
             if (progress == null)
                 throw new ArgumentNullException(nameof(progress));
+
+            using (var tracker = new ProcessTextTracker(trackOutput: false))
             using (IProcess process = CreateProcess (command, true))
             {
                 try
                 {
+                    tracker.Track(process);
+
                     cancellationToken.Register (async () => {
                         await process.Kill ();
                     });
@@ -191,8 +186,8 @@ namespace Microsoft.TeamFoundation.GitApi
                     try { process.WaitForExit(); } catch { /* squelch */ }
                 }
                 if (cancellationToken.IsCancellationRequested)
-                    return -1;
-                return process.ExitCode;
+                    return ExecuteResult.Canceled;
+                return new ExecuteResult(process.ExitCode, tracker.Error);
             }
         }
 

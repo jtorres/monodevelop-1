@@ -46,9 +46,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                     {
                         CheckoutOperation progress = new CheckoutOperation(Context, progressCallback);
 
-                        int exitCode = ExecuteProgress(command, progress);
+                        var executeResult = ExecuteProgress(command, progress);
 
-                        TestExitCode(exitCode, command);
+                        TestExitCode(executeResult, command);
                     }
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(ResetCommand)}.{nameof(ResetHard)}", exception, command))
@@ -79,12 +79,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    string standardError;
-                    string standardOutput;
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    int exitcode = Execute(command, out standardError, out standardOutput);
-
-                    switch (exitcode)
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             {
@@ -94,10 +91,10 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             }
 
                         case GitFatalExitCode:
-                            throw new GitFatalException(standardError);
+                            throw new GitFatalException(executeResult);
 
                         case GitUsageExitCode:
-                            throw new GitUsageException(standardError);
+                            throw new GitUsageException(executeResult);
                     }
                 }
             }
@@ -129,12 +126,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    string standardError;
-                    string standardOutput;
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    int exitcode = Execute(command, out standardError, out standardOutput);
-
-                    TestExitCode(exitcode, Command, standardError);
+                    TestExitCode(executeResult, Command);
                 }
 
                 ResetRepositoryDetails();
@@ -161,12 +155,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    string standardError;
-                    string standardOutput;
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    int exitcode = Execute(command, out standardError, out standardOutput);
-
-                    TestExitCode(exitcode, Command, standardError);
+                    TestExitCode(executeResult, Command);
                 }
 
                 ResetRepositoryDetails();
@@ -259,12 +250,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    string standardError;
-                    string standardOutput;
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    int exitcode = Execute(command, out standardError, out standardOutput);
-
-                    switch (exitcode)
+                    switch (executeResult.ExitCode)
                     {
                         case GitCleanExitCode:
                             {
@@ -273,10 +261,10 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                             break;
 
                         case GitFatalExitCode:
-                            throw new GitFatalException(standardError);
+                            throw new GitFatalException(executeResult);
 
                         case GitUsageExitCode:
-                            throw new GitUsageException(standardError);
+                            throw new GitUsageException(executeResult);
                     }
                 }
             }

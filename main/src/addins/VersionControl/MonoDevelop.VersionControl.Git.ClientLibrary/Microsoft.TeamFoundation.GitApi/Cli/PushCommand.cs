@@ -171,9 +171,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             {
                 try
                 {
-                    int exitCode = ExecuteProgress(command, progress);
+                    var executeResult = ExecuteProgress(command, progress);
 
-                    TestExitCode(exitCode, $"{nameof(PushCommand)}.{nameof(ExecutePushCommand)}");
+                    TestExitCode(executeResult, $"{nameof(PushCommand)}.{nameof(ExecutePushCommand)}");
                 }
                 catch (ParseException exception) when (ParseHelper.AddContext("command", exception, command))
                 {

@@ -41,12 +41,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     using (Tracer.TraceCommand(Command, command, userData: _userData))
                     {
-                        string standardError;
-                        string standardOuput;
+                        var executeResult = Execute(command, out string standardOuput);
 
-                        int exitCode = Execute(command, out standardError, out standardOuput);
-
-                        TestExitCode(exitCode, command, standardError);
+                        TestExitCode(executeResult, command);
 
                         long count = long.Parse(standardOuput);
 
@@ -139,15 +136,15 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
-                    int exitCode = Execute(command, out string standardError, out string standardOutput);
+                    var executeResult = Execute(command, out string standardOutput);
 
-                    switch (exitCode)
+                    switch (executeResult.ExitCode)
                     {
                         case 0:
                             return true;
 
                         case GitUsageExitCode:
-                            throw new GitUsageException(standardError);
+                            throw new GitUsageException(executeResult);
 
                         case GitFatalExitCode:
                         default:

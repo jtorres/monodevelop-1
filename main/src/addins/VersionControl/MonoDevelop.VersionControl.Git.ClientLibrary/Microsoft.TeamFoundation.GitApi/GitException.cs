@@ -48,17 +48,23 @@ namespace Microsoft.TeamFoundation.GitApi
             _errorText = errorText;
         }
 
-        internal GitException(string errorText, int exitCode)
+        internal GitException(string errorText, ExecuteResult exitCode)
             : base(errorText)
         {
-            _exitCode = exitCode;
+            _executeResult = exitCode;
         }
 
-        internal GitException(string message, string errorText, int exitCode)
+        internal GitException(ExecuteResult exitCode)
+            : base(exitCode.ErrorText)
+        {
+            _executeResult = exitCode;
+        }
+
+        internal GitException(string message, string errorText, ExecuteResult exitCode)
             : base(message)
         {
             _errorText = errorText;
-            _exitCode = exitCode;
+            _executeResult = exitCode;
         }
 
         internal GitException(string message, Exception innerException)
@@ -71,28 +77,28 @@ namespace Microsoft.TeamFoundation.GitApi
             _errorText = errorText;
         }
 
-        internal GitException(string message, int exitCode, Exception innerException)
+        internal GitException(string message, ExecuteResult exitCode, Exception innerException)
             : base(message, innerException)
         {
-            _exitCode = exitCode;
+            _executeResult = exitCode;
         }
 
-        internal GitException(string message, int exitCode, string errorText, Exception innerException)
+        internal GitException(string message, ExecuteResult exitCode, string errorText, Exception innerException)
              : base(message, innerException)
         {
             _errorText = errorText;
-            _exitCode = exitCode;
+            _executeResult = exitCode;
         }
 
         internal GitException(SerializationInfo info, StreamingContext context)
               : base(info, context)
         {
             _errorText = info.GetString(nameof(ErrorText));
-            _exitCode = (int?)info.GetValue(nameof(ExitCode), typeof(int?));
+            _executeResult = (ExecuteResult?)info.GetValue(nameof(ExecuteResult), typeof(int?));
         }
 
         private string _errorText;
-        public int? _exitCode;
+        public ExecuteResult? _executeResult;
 
         public string ErrorText
         {
@@ -101,28 +107,30 @@ namespace Microsoft.TeamFoundation.GitApi
 
         public int? ExitCode
         {
-            get { return _exitCode; }
+            get { return _executeResult.HasValue ? _executeResult.Value.ExitCode : default; }
         }
 
         public override string Message
         {
             get
             {
-                if (string.IsNullOrWhiteSpace (_errorText))
-                    return base.Message;
-                return _exitCode == null
-                    ? Invariant ($"{base.Message}\r\n{_errorText}")
-                    : Invariant ($"{base.Message}\r\n{_errorText}\r\n{_exitCode}");
+                if (_executeResult == null)
+                {
+                    return _errorText != null ? Invariant($"{base.Message}\r\n{_errorText}") : base.Message;
+                }
+                return _errorText != null ? Invariant($"{base.Message}\r\n{_errorText}\r\n{_executeResult}") :
+                    Invariant($"{base.Message}\r\n{_executeResult}");
             }
         }
 
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             info.AddValue(nameof(ErrorText), _errorText);
-            info.AddValue(nameof(ExitCode), _exitCode);
+            info.AddValue(nameof(ExitCode), _executeResult);
 
             base.GetObjectData(info, context);
         }
+
     }
 
     /// <summary>
@@ -131,7 +139,7 @@ namespace Microsoft.TeamFoundation.GitApi
     [Serializable]
     public class GitFatalException : GitException
     {
-        public const int DefaultExitCode = 128;
+        public static readonly ExecuteResult DefaultExitCode = new ExecuteResult(128, ExceptionMessage);
         internal const string ExceptionMessage = "Git failed with a fatal error.";
 
         internal GitFatalException()
@@ -142,11 +150,15 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(ExceptionMessage, errorText, DefaultExitCode)
         { }
 
+        internal GitFatalException(ExecuteResult executeResult)
+            : base(ExceptionMessage, executeResult)
+        { }
+
         internal GitFatalException(Exception innerException)
             : base(ExceptionMessage, DefaultExitCode, innerException)
         { }
 
-        internal GitFatalException(int exitCode, Exception innerException)
+        internal GitFatalException(ExecuteResult exitCode, Exception innerException)
             : base(ExceptionMessage, exitCode, innerException)
         { }
 
@@ -154,7 +166,7 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(ExceptionMessage, DefaultExitCode, errorText, innerException)
         { }
 
-        internal GitFatalException(int exitCode, string errorText, Exception innerException)
+        internal GitFatalException(ExecuteResult exitCode, string errorText, Exception innerException)
             : base(ExceptionMessage, exitCode, innerException)
         { }
 
@@ -169,26 +181,22 @@ namespace Microsoft.TeamFoundation.GitApi
     [Serializable]
     public class GitUsageException : GitException
     {
-        public const int DefaultExitCode = 129;
+        public static readonly ExecuteResult DefaultExitCode = new ExecuteResult(128, ExceptionMessage);
         internal const string ExceptionMessage = "Git failed with a usage error.";
 
         internal GitUsageException()
             : base(ExceptionMessage, DefaultExitCode)
         { }
 
-        internal GitUsageException(string errorText)
-            : base(ExceptionMessage, errorText, DefaultExitCode)
-        { }
-
-        internal GitUsageException(int exitCode, string errorText)
-            : base(ExceptionMessage, errorText)
+        internal GitUsageException(ExecuteResult exitCode)
+            : base(ExceptionMessage, exitCode)
         { }
 
         internal GitUsageException(Exception innerException)
              : base(ExceptionMessage, DefaultExitCode, innerException)
         { }
 
-        internal GitUsageException(int exitCode, Exception innerException)
+        internal GitUsageException(ExecuteResult exitCode, Exception innerException)
             : base(ExceptionMessage, exitCode, innerException)
         { }
 
@@ -196,7 +204,7 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(ExceptionMessage, DefaultExitCode, errorText, innerException)
         { }
 
-        internal GitUsageException(int exitCode, string errorText, Exception innerException)
+        internal GitUsageException(ExecuteResult exitCode, string errorText, Exception innerException)
             : base(ExceptionMessage, exitCode, innerException)
         { }
 
@@ -214,11 +222,15 @@ namespace Microsoft.TeamFoundation.GitApi
         public const string ExceptionMessage = "Your git-hook is unsupported, likely because the first line is not \"#!/bin/sh\".";
 
         internal GitHookConfigurationException()
-            : base(ExceptionMessage, GitErrorExitCode)
+            : base(ExceptionMessage, new ExecuteResult(GitErrorExitCode, ExceptionMessage))
+        { }
+
+        internal GitHookConfigurationException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal GitHookConfigurationException(string message)
-            : base(Invariant($"{ExceptionMessage}\r\n{message}"), message, GitErrorExitCode)
+            : base(Invariant($"{ExceptionMessage}\r\n{message}"), message, new ExecuteResult(GitErrorExitCode, ExceptionMessage))
         {
             string hookPath;
             if (ExtractHookPath(message, out hookPath))
@@ -228,7 +240,7 @@ namespace Microsoft.TeamFoundation.GitApi
         }
 
         internal GitHookConfigurationException(string message, Exception innerException)
-            : base(Invariant($"{ExceptionMessage}\r\n{message}"), GitErrorExitCode, message, innerException)
+            : base(Invariant($"{ExceptionMessage}\r\n{message}"), new ExecuteResult(GitErrorExitCode, ExceptionMessage), message, innerException)
         {
             string hookPath;
             if (ExtractHookPath(message, out hookPath))
@@ -288,11 +300,15 @@ namespace Microsoft.TeamFoundation.GitApi
         public const string ExceptionMessage = "Your git-hook is unsupported, likely because it needs \"/dev/tty\".";
 
         internal GitHookInteractivityException()
-            : base(ExceptionMessage, GitErrorExitCode)
+            : base(ExceptionMessage, new ExecuteResult(GitErrorExitCode, ExceptionMessage))
+        { }
+
+        internal GitHookInteractivityException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal GitHookInteractivityException(string message)
-            : base(Invariant($"{ExceptionMessage}\r\n{message}"), message, GitErrorExitCode)
+            : base(Invariant($"{ExceptionMessage}\r\n{message}"), message, new ExecuteResult(GitErrorExitCode, ExceptionMessage))
         {
             string hookPath;
             int lineNumber;
@@ -305,7 +321,7 @@ namespace Microsoft.TeamFoundation.GitApi
         }
 
         internal GitHookInteractivityException(string message, Exception innerException)
-            : base(Invariant($"{ExceptionMessage}\r\n{message}"), GitErrorExitCode, message, innerException)
+            : base(Invariant($"{ExceptionMessage}\r\n{message}"), new ExecuteResult(GitErrorExitCode, ExceptionMessage), message, innerException)
         {
             string hookPath;
             int lineNumber;

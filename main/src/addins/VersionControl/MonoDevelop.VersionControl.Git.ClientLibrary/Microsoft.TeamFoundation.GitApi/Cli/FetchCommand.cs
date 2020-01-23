@@ -100,9 +100,9 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 {
                     var progress = new FetchOperation(Context, progressCallback);
 
-                    int exitCode = ExecuteProgress(command, progress);
+                    var executeResult = ExecuteProgress(command, progress);
 
-                    TestExitCode(exitCode, $"{nameof(FetchCommand)}.{nameof(ExecuteFetch)}");
+                    TestExitCode(executeResult, $"{nameof(FetchCommand)}.{nameof(ExecuteFetch)}");
                 }
             }
             catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(FetchCommand)}.{nameof(ExecuteFetch)}", exception, command))

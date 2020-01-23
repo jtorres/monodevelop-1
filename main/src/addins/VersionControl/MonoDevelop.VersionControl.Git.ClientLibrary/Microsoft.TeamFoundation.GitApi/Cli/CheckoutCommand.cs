@@ -108,10 +108,10 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
                 using (Tracer.TraceCommand(Command, command, userData: _userData))
                 {
                     CheckoutOperation progress = new CheckoutOperation(Context, progressCallback);
-                    int exitCode = ExecuteProgress(command, progress);
+                    var executeResult = ExecuteProgress(command, progress);
 
                     // only throw if the process exited with an actual fatal code
-                    TestExitCode(exitCode, command);
+                    TestExitCode(executeResult, command);
                 }
             }
             catch (ParseException exception) when (ParseHelper.AddContext($"{nameof(CheckoutCommand)}.{nameof(ExecuteCheckout)}", exception))

@@ -39,12 +39,12 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message, errorText)
         { }
 
-        internal CommitException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal CommitException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
-        internal CommitException(string message, string errorText, int exitCode)
-            : base(message, errorText, exitCode)
+        internal CommitException(string message, ExecuteResult executeResult)
+            : base(message, executeResult)
         { }
 
         internal CommitException(string message, Exception innerException)
@@ -55,12 +55,8 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message, errorText, innerException)
         { }
 
-        internal CommitException(string message, int exitCode, Exception innerException)
-            : base(message, exitCode, innerException)
-        { }
-
-        internal CommitException(string message, int exitCode, string errorText, Exception innerException)
-            : base(message, exitCode, errorText, innerException)
+        internal CommitException(string message, ExecuteResult executeResult, Exception innerException)
+            : base(message, executeResult, innerException)
         { }
 
         internal CommitException(SerializationInfo info, StreamingContext context)
@@ -76,6 +72,10 @@ namespace Microsoft.TeamFoundation.GitApi
     {
         internal EmptyCommitException(string message)
             : base(message)
+        { }
+
+        internal EmptyCommitException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal EmptyCommitException(SerializationInfo info, StreamingContext context)
@@ -96,8 +96,8 @@ namespace Microsoft.TeamFoundation.GitApi
             : base(message)
         { }
 
-        internal EmptyCommitMessageException(string errorText, int exitCode)
-            : base(errorText, exitCode)
+        internal EmptyCommitMessageException(ExecuteResult executeResult)
+            : base(executeResult)
         { }
 
         internal EmptyCommitMessageException(SerializationInfo info, StreamingContext context)
