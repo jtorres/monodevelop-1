@@ -115,7 +115,7 @@ namespace MonoDevelop.VersionControl
 		protected TaskFactory ExclusiveOperationFactory { get { InitScheduler (); return exclusiveOperationFactory; } }
 
 		protected bool IsVcsThread {
-			get { return Thread.CurrentThread == scheduler.DedicatedThread; }
+			get { return scheduler != null &&  Thread.CurrentThread == scheduler.DedicatedThread; }
 		}
 
 		protected void AssertIsVcsThread ()

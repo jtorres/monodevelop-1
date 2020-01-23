@@ -1708,12 +1708,17 @@ namespace MonoDevelop.VersionControl.Git
 				options.RecurseSubmodules = true;
 				options.Checkout = true;
 				options.ProgressCallback = new ProgressMonitorOperationBinder (monitor);
-				using (var pipe = new GitAskPassPipe (Url)) {
-					pipe.StartPipe ();
-					GitApiRootRepository = await Microsoft.TeamFoundation.GitApi.Repository.CloneAsync (ctx, Url, targetLocalPath, options, null, monitor.CancellationToken);
-					RootPath = targetLocalPath.CanonicalPath;
-					if (monitor.CancellationToken.IsCancellationRequested || RootPath.IsNull)
-						return;
+				try {
+					using (var pipe = new GitAskPassPipe (Url)) {
+						pipe.StartPipe ();
+						GitApiRootRepository = await Microsoft.TeamFoundation.GitApi.Repository.CloneAsync (ctx, Url, targetLocalPath, options, null, monitor.CancellationToken);
+						RootPath = targetLocalPath.CanonicalPath;
+						if (monitor.CancellationToken.IsCancellationRequested || RootPath.IsNull)
+							return;
+					}
+				} catch (Exception e) {
+					LoggingService.LogInternalError ("Error while cloning repository " + rev + " recuse: " + recurse + " using fallback.", e);
+					await OnCheckoutAsync_LibGitFallback (targetLocalPath, rev, recurse, monitor);
 				}
 
 				RootRepository = await CreateSafeRepositoryAsync (RootPath);
@@ -1725,6 +1730,115 @@ namespace MonoDevelop.VersionControl.Git
 				throw e;
 			} finally {
 				monitor.EndTask ();
+			}
+		}
+
+		async Task OnCheckoutAsync_LibGitFallback (FilePath targetLocalPath, Revision rev, bool recurse, ProgressMonitor monitor)
+		{
+			int transferProgress = 0;
+			int checkoutProgress = 0;
+
+			try {
+				monitor.BeginTask (GettextCatalog.GetString ("Cloning…"), 2);
+				bool skipSubmodules = false;
+				var innerTask = await RunOperationAsync ((token) => RetryUntilSuccessAsync (monitor, credType => {
+					var options = new LibGit2Sharp.CloneOptions {
+						CredentialsProvider = (url, userFromUrl, types) => {
+							transferProgress = checkoutProgress = 0;
+							return GitCredentials.TryGet (url, userFromUrl, types, credType);
+						},
+						RepositoryOperationStarting = ctx => {
+							Runtime.RunInMainThread (() => {
+								monitor.Log.WriteLine (GettextCatalog.GetString ("Checking out repository at '{0}'"), ctx.RepositoryPath);
+							});
+							return true;
+						},
+						OnTransferProgress = (tp) => OnTransferProgress (tp, monitor, ref transferProgress),
+						OnCheckoutProgress = (path, completedSteps, totalSteps) => {
+							OnCheckoutProgress (completedSteps, totalSteps, monitor, ref checkoutProgress);
+							Runtime.RunInMainThread (() => {
+								monitor.Log.WriteLine (GettextCatalog.GetString ("Checking out file '{0}'"), path);
+							});
+						}
+					};
+
+					try {
+						RootPath = LibGit2Sharp.Repository.Clone (Url, targetLocalPath, options);
+					} catch (UserCancelledException) {
+						return Task.CompletedTask;
+					}
+					var updateOptions = new LibGit2Sharp.SubmoduleUpdateOptions {
+						Init = true,
+						CredentialsProvider = options.CredentialsProvider,
+						OnTransferProgress = options.OnTransferProgress,
+						OnCheckoutProgress = options.OnCheckoutProgress,
+					};
+					monitor.Step (1);
+					try {
+						if (!skipSubmodules)
+							RecursivelyCloneSubmodules (RootPath, updateOptions, monitor);
+					} catch (Exception e) {
+						LoggingService.LogError ("Cloning submodules failed", e);
+						FileService.DeleteDirectory (RootPath);
+						skipSubmodules = true;
+						return Task.FromException (e);
+					}
+					return Task.CompletedTask;
+				}), monitor.CancellationToken).ConfigureAwait (false);
+
+				await innerTask.ConfigureAwait (false);
+
+				if (monitor.CancellationToken.IsCancellationRequested || RootPath.IsNull)
+					return;
+
+				RootPath = RootPath.CanonicalPath.ParentDirectory;
+
+				RootRepository = await CreateSafeRepositoryAsync (RootPath).ConfigureAwait (false);
+				GitApiRootRepository = await CreateSafeGitRepositoryAsync (RootPath).ConfigureAwait (false);
+				InitFileWatcher ();
+				if (skipSubmodules) {
+					MessageService.ShowError (GettextCatalog.GetString ("Cloning submodules failed"), GettextCatalog.GetString ("Please use the command line client to init the submodules manually."));
+				}
+			} catch (Exception e) {
+				LoggingService.LogInternalError ("Error while cloning repository " + rev + " recuse: " + recurse, e);
+				throw e;
+			} finally {
+				monitor.EndTask ();
+			}
+		}
+
+		static void RecursivelyCloneSubmodules (string repoPath, LibGit2Sharp.SubmoduleUpdateOptions updateOptions, ProgressMonitor monitor)
+		{
+			var submodules = new List<string> ();
+			using (var repo = new LibGit2Sharp.Repository (repoPath)) {
+				// Iterate through the submodules (where the submodule is in the index),
+				// and clone them.
+				var submoduleArray = repo.Submodules.Where (sm => sm.RetrieveStatus ().HasFlag (SubmoduleStatus.InIndex)).ToArray ();
+				monitor.BeginTask (GettextCatalog.GetString ("Cloning submodules…"), submoduleArray.Length);
+				try {
+					foreach (var sm in submoduleArray) {
+						if (monitor.CancellationToken.IsCancellationRequested) {
+							throw new UserCancelledException ("Recursive clone of submodules was cancelled.");
+						}
+
+						Runtime.RunInMainThread (() => {
+							monitor.Log.WriteLine (GettextCatalog.GetString ("Checking out submodule at '{0}'…", sm.Path));
+							monitor.Step (1);
+						});
+						repo.Submodules.Update (sm.Name, updateOptions);
+
+						submodules.Add (Path.Combine (repo.Info.WorkingDirectory, sm.Path));
+					}
+				} finally {
+					monitor.EndTask ();
+				}
+			}
+
+			// If we are continuing the recursive operation, then
+			// recurse into nested submodules.
+			// Check submodules to see if they have their own submodules.
+			foreach (string path in submodules) {
+				RecursivelyCloneSubmodules (path, updateOptions, monitor);
 			}
 		}
 
@@ -2005,26 +2119,57 @@ namespace MonoDevelop.VersionControl.Git
 
 		public async Task PushAsync (ProgressMonitor monitor, string remote, string remoteBranch)
 		{
+			try {
+				bool success = true;
+
+				await RunOperationAsync ((token) => {
+					var options = new Microsoft.TeamFoundation.GitApi.PushOptions ();
+					options.ProgressCallback = new ProgressMonitorOperationBinder (monitor);
+					using (var pipe = new GitAskPassPipe (Url)) {
+						pipe.StartPipe ();
+						GitApiRootRepository.Push (GitApiRootRepository.ReadHead ().AsBranch (),
+							new Microsoft.TeamFoundation.GitApi.RemoteName (remote),
+							new Microsoft.TeamFoundation.GitApi.BranchName ("refs/heads/" + remoteBranch),
+							options);
+					}
+				}, monitor.CancellationToken).ConfigureAwait (false);
+
+				if (!success)
+					return;
+				monitor.ReportSuccess (GettextCatalog.GetString ("Push operation successfully completed."));
+			} catch (Exception e) {
+				await PushAsync_LibGitFallback (monitor, remote, remoteBranch);
+			}
+		}
+
+		async Task PushAsync_LibGitFallback (ProgressMonitor monitor, string remote, string remoteBranch)
+		{
 			bool success = true;
 
 			await RunOperationAsync ((token) => {
-				var options = new Microsoft.TeamFoundation.GitApi.PushOptions ();
-				options.ProgressCallback = new ProgressMonitorOperationBinder (monitor);
-				using (var pipe = new GitAskPassPipe (Url)) {
-					pipe.StartPipe ();
-					GitApiRootRepository.Push (GitApiRootRepository.ReadHead ().AsBranch (),
-						new Microsoft.TeamFoundation.GitApi.RemoteName (remote),
-						new Microsoft.TeamFoundation.GitApi.BranchName ("refs/heads/" + remoteBranch),
-						options);
+				var branch = RootRepository.Head;
+				if (branch.TrackedBranch == null) {
+					RootRepository.Branches.Update (branch, b => b.TrackedBranch = "refs/remotes/" + remote + "/" + remoteBranch);
 				}
 			}, monitor.CancellationToken).ConfigureAwait (false);
+
+			var innerTask = await RunOperationAsync ((token) => {
+				return RetryUntilSuccessAsync (monitor, credType => {
+					RootRepository.Network.Push (RootRepository.Network.Remotes [remote], "refs/heads/" + remoteBranch, new LibGit2Sharp.PushOptions {
+						OnPushStatusError = pushStatusErrors => success = false,
+						CredentialsProvider = (url, userFromUrl, types) => GitCredentials.TryGet (url, userFromUrl, types, credType)
+					});
+					return Task.CompletedTask;
+				});
+			}, monitor.CancellationToken).ConfigureAwait (false);
+
+			await innerTask.ConfigureAwait (false);
 
 			if (!success)
 				return;
 
 			monitor.ReportSuccess (GettextCatalog.GetString ("Push operation successfully completed."));
 		}
-
 		public Task CreateBranchFromCommitAsync (string name, Commit id)
 		{
 			return RunBlockingOperationAsync ((token) => RootRepository.CreateBranch (name, id));
