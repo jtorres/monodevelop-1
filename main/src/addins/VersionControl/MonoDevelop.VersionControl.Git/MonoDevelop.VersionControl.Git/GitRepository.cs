@@ -31,15 +31,18 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using LibGit2Sharp;
-using Microsoft.TemplateEngine.Core.Util;
+using Microsoft.CodeAnalysis.Operations;
 using MonoDevelop.Core;
 using MonoDevelop.Core.Text;
 using MonoDevelop.Ide;
 using ProgressMonitor = MonoDevelop.Core.ProgressMonitor;
+using Microsoft.TeamFoundation.GitApi;
+using Minimatch;
 
 namespace MonoDevelop.VersionControl.Git
 {
@@ -75,30 +78,31 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
+		Microsoft.TeamFoundation.GitApi.IRepository gitApiRootRepository;
+		internal Microsoft.TeamFoundation.GitApi.IRepository GitApiRootRepository {
+			get => gitApiRootRepository;
+			set {
+				if (gitApiRootRepository == value)
+					return;
+				ShutdownFileWatcher ();
+				ShutdownScheduler ();
+
+				if (gitApiRootRepository != null)
+					gitApiRootRepository.Dispose ();
+
+				gitApiRootRepository = value;
+
+				InitScheduler ();
+				if (this.watchGitLockfiles)
+					InitFileWatcher (false);
+			}
+		}
+
 		public static event EventHandler BranchSelectionChanged;
 
 		FileSystemWatcher watcher;
 
 		readonly bool watchGitLockfiles;
-
-		DedicatedThreadScheduler gitScheduler;
-		TaskFactory dedicatedOperationFactory;
-
-		DedicatedThreadScheduler GitScheduler {
-			get {
-				if (gitScheduler == null)
-					gitScheduler = new DedicatedThreadScheduler ("Libgit2 Thread");
-				return gitScheduler;
-			}
-		}
-
-		TaskFactory DedicatedOperationFactory {
-			get {
-				if (dedicatedOperationFactory == null)
-					dedicatedOperationFactory = new TaskFactory (GitScheduler);
-				return dedicatedOperationFactory;
-			}
-		}
 
 		public GitRepository ()
 		{
@@ -108,6 +112,8 @@ namespace MonoDevelop.VersionControl.Git
 		internal GitRepository (VersionControlSystem vcs, FilePath path, string url, bool watchGitLockfiles) : base (vcs)
 		{
 			RootRepository = CreateSafeRepositoryAsync (path).Result;
+			GitApiRootRepository = CreateSafeGitRepositoryAsync (path).Result;
+
 			RootPath = RootRepository.Info.WorkingDirectory;
 			Url = url;
 			this.watchGitLockfiles = watchGitLockfiles;
@@ -126,6 +132,14 @@ namespace MonoDevelop.VersionControl.Git
 			//if (Thread.CurrentThread == GitScheduler.DedicatedThread)
 				return Task.FromResult (new LibGit2Sharp.Repository (path));
 			//return RunOperationAsync ((token) => new LibGit2Sharp.Repository (path));
+		}
+
+		Task<Microsoft.TeamFoundation.GitApi.IRepository> CreateSafeGitRepositoryAsync (string path)
+		{
+			var ctx = Microsoft.TeamFoundation.GitApi.ExecutionContext.CreateNew ();
+			GitAskPassPipe.SetupContext (ctx);
+			ctx.Git.Installation = InstallationDetector.CreateInstallation (null, KnownDistribution.GitForOsX);
+			return Task.FromResult (Microsoft.TeamFoundation.GitApi.Repository.Open (ctx, path));
 		}
 
 		void InitFileWatcher (bool throwIfIndexMissing = true)
@@ -297,25 +311,22 @@ namespace MonoDevelop.VersionControl.Git
 					gitLock?.Dispose ();
 
 					if (rootRepository != null) {
-						// disposeTokenSource.Cancel is called so all operations on DedicatedOperationFactory should be canceled
-						DedicatedOperationFactory.StartNew (() => {
-							try {
-								rootRepository?.Dispose ();
-							} catch (Exception e) {
-								LoggingService.LogInternalError ("Disposing LibGit2Sharp.Repository failed", e);
-							}
-							if (cachedSubmodules != null) {
-								foreach (var submodule in cachedSubmodules) {
-									try {
-										var submoduleRepository = submodule?.Item2;
-										submoduleRepository?.Dispose ();
-									} catch (Exception e) {
-										LoggingService.LogInternalError ("Disposing LibGit2Sharp.Repository failed", e);
-									}
+						// disposeTokenSource.Cancel is called so all operations on the exclusive thread should be canceled
+						try {
+							rootRepository?.Dispose ();
+						} catch (Exception e) {
+							LoggingService.LogInternalError ("Disposing LibGit2Sharp.Repository failed", e);
+						}
+						if (cachedSubmodules != null) {
+							foreach (var submodule in cachedSubmodules) {
+								try {
+									var submoduleRepository = submodule?.Item2;
+									submoduleRepository?.Dispose ();
+								} catch (Exception e) {
+									LoggingService.LogInternalError ("Disposing LibGit2Sharp.Repository failed", e);
 								}
 							}
-						}).Ignore ();
-						gitScheduler.Dispose ();
+						}
 					}
 				}
 
@@ -328,16 +339,16 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
-		public override string[] SupportedProtocols {
+		public override string [] SupportedProtocols {
 			get {
-				return new [] {"git", "ssh", "http", "https", /*"ftp", "ftps", "rsync",*/ "file"};
+				return new [] { "git", "ssh", "http", "https", /*"ftp", "ftps", "rsync",*/ "file" };
 			}
 		}
 
 		public override bool IsUrlValid (string url)
 		{
 			if (url.Contains (':')) {
-				var tokens = url.Split (new[] { ':' }, 2);
+				var tokens = url.Split (new [] { ':' }, 2);
 				if (Uri.IsWellFormedUriString (tokens [0], UriKind.RelativeOrAbsolute) ||
 					Uri.IsWellFormedUriString (tokens [1], UriKind.RelativeOrAbsolute))
 					return true;
@@ -367,8 +378,10 @@ namespace MonoDevelop.VersionControl.Git
 
 			var r = (GitRepository)other;
 			RootPath = r.RootPath;
-			if (!RootPath.IsNullOrEmpty)
+			if (!RootPath.IsNullOrEmpty) {
 				RootRepository = CreateSafeRepositoryAsync (RootPath).Result;
+				GitApiRootRepository = CreateSafeGitRepositoryAsync (RootPath).Result;
+			}
 		}
 
 		public override string LocationDescription {
@@ -483,8 +496,8 @@ namespace MonoDevelop.VersionControl.Git
 				monitor.BeginTask (GettextCatalog.GetString ("Applying stash"), 1);
 
 			int progress = 0;
-			StashApplyStatus res = repository.Stashes.Apply (stashIndex, new StashApplyOptions {
-				CheckoutOptions = new CheckoutOptions {
+			StashApplyStatus res = repository.Stashes.Apply (stashIndex, new LibGit2Sharp.StashApplyOptions {
+				CheckoutOptions = new LibGit2Sharp.CheckoutOptions {
 					OnCheckoutProgress = (path, completedSteps, totalSteps) => OnCheckoutProgress (completedSteps, totalSteps, monitor, ref progress),
 					OnCheckoutNotify = (string path, CheckoutNotifyFlags flags) => RefreshFile (repository, path, flags),
 					CheckoutNotifyFlags = refreshFlags,
@@ -498,9 +511,13 @@ namespace MonoDevelop.VersionControl.Git
 		}
 		public override bool TryGetFileUpdateEventInfo (Repository rep, FilePath file, out FileUpdateEventInfo eventInfo)
 		{
-			if (file.FileName == "index" && file.ParentDirectory.FileName == ".git") {
-				eventInfo = FileUpdateEventInfo.UpdateRepository (rep);
-				return true;
+			if (file.ParentDirectory.FileName == ".git") {
+				if (file.FileName == "index") {
+					eventInfo = FileUpdateEventInfo.UpdateRepository (rep);
+					return true;
+				}
+				eventInfo = null;
+				return false;
 			}
 			return base.TryGetFileUpdateEventInfo (rep, file, out eventInfo);
 		}
@@ -513,8 +530,8 @@ namespace MonoDevelop.VersionControl.Git
 			var res = RunBlockingOperation ((token) => {
 				var stash = RootRepository.Stashes [stashIndex];
 				int progress = 0;
-				return RootRepository.Stashes.Pop (stashIndex, new StashApplyOptions {
-					CheckoutOptions = new CheckoutOptions {
+				return RootRepository.Stashes.Pop (stashIndex, new LibGit2Sharp.StashApplyOptions {
+					CheckoutOptions = new LibGit2Sharp.CheckoutOptions {
 						OnCheckoutProgress = (path, completedSteps, totalSteps) => OnCheckoutProgress (completedSteps, totalSteps, monitor, ref progress),
 						OnCheckoutNotify = (string path, CheckoutNotifyFlags flags) => RefreshFile (path, flags),
 						CheckoutNotifyFlags = refreshFlags,
@@ -545,7 +562,7 @@ namespace MonoDevelop.VersionControl.Git
 			return true;
 		}
 
-		internal Signature GetSignature()
+		internal Signature GetSignature ()
 		{
 			// TODO: Investigate Configuration.BuildSignature.
 			string name;
@@ -589,30 +606,26 @@ namespace MonoDevelop.VersionControl.Git
 				InitFileWatcher ();
 		}
 
-		bool IsGitThread {
-			get { return Thread.CurrentThread == GitScheduler.DedicatedThread; }
-		}
-
 		internal void RunOperation (Action action, bool hasUICallbacks = false)
 		{
 			EnsureInitialized ();
 			if (hasUICallbacks)
 				EnsureBackgroundThread ();
-			if (IsGitThread)
+			if (IsVcsThread)
 				action ();
 			else
-				DedicatedOperationFactory.StartNew (action).RunWaitAndCapture ();
+				ExclusiveOperationFactory.StartNew (action).RunWaitAndCapture ();
 		}
 
 		internal Task RunOperationAsync (Action<CancellationToken> action, CancellationToken cancellationToken = default)
 		{
 			EnsureInitialized ();
-			if (IsGitThread) {
+			if (IsVcsThread) {
 				action (cancellationToken);
 				return Task.CompletedTask;
 			}
 			var src = LinkTokenToDispose (ref cancellationToken);
-			return DedicatedOperationFactory.StartNew (() => {
+			return ExclusiveOperationFactory.StartNew (() => {
 				try {
 					action (cancellationToken);
 				} finally {
@@ -626,18 +639,18 @@ namespace MonoDevelop.VersionControl.Git
 			EnsureInitialized ();
 			if (hasUICallbacks)
 				EnsureBackgroundThread ();
-			if (IsGitThread)
+			if (IsVcsThread)
 				return action ();
-			return DedicatedOperationFactory.StartNew (action).RunWaitAndCapture ();
+			return ExclusiveOperationFactory.StartNew (action).RunWaitAndCapture ();
 		}
 
 		internal Task<T> RunOperationAsync<T> (Func<CancellationToken, T> action, CancellationToken cancellationToken = default)
 		{
 			EnsureInitialized ();
-			if (IsGitThread)
+			if (IsVcsThread)
 				return Task.FromResult (action (cancellationToken));
 			var src = LinkTokenToDispose (ref cancellationToken);
-			return DedicatedOperationFactory.StartNew (() => {
+			return ExclusiveOperationFactory.StartNew (() => {
 				try {
 					return action (cancellationToken);
 				} finally {
@@ -649,10 +662,10 @@ namespace MonoDevelop.VersionControl.Git
 		internal Task<T> RunOperationAsync<T> (FilePath localPath, Func<LibGit2Sharp.Repository, CancellationToken, T> action, CancellationToken cancellationToken = default)
 		{
 			EnsureInitialized ();
-			if (IsGitThread)
+			if (IsVcsThread)
 				return Task.FromResult (action (GetRepository (localPath), cancellationToken));
 			var src = LinkTokenToDispose (ref cancellationToken);
-			return DedicatedOperationFactory.StartNew (() => {
+			return ExclusiveOperationFactory.StartNew (() => {
 				try {
 					return action (GetRepository (localPath), cancellationToken);
 				} finally {
@@ -666,12 +679,12 @@ namespace MonoDevelop.VersionControl.Git
 			EnsureInitialized ();
 			if (hasUICallbacks)
 				EnsureBackgroundThread ();
-			if (IsGitThread) {
+			if (IsVcsThread) {
 				return RunBlockingOperationInternal (action, cancellationToken);
 			}
 
 			using (LinkTokenToDispose (ref cancellationToken)) {
-				return DedicatedOperationFactory.StartNew (() => RunBlockingOperationInternal (action, cancellationToken))
+				return ExclusiveOperationFactory.StartNew (() => RunBlockingOperationInternal (action, cancellationToken))
 					.RunWaitAndCapture ();
 			}
 
@@ -692,13 +705,13 @@ namespace MonoDevelop.VersionControl.Git
 		{
 			EnsureInitialized ();
 
-			if (IsGitThread) {
+			if (IsVcsThread) {
 				RunBlockingOperationInternal (action, cancellationToken);
 				return Task.CompletedTask;
 			}
 
 			var src = LinkTokenToDispose (ref cancellationToken);
-			return DedicatedOperationFactory.StartNew (() => {
+			return ExclusiveOperationFactory.StartNew (() => {
 				try {
 					RunBlockingOperationInternal (action, cancellationToken);
 				} finally {
@@ -723,14 +736,14 @@ namespace MonoDevelop.VersionControl.Git
 		{
 			EnsureInitialized ();
 
-			if (IsGitThread) {
+			if (IsVcsThread) {
 				RunBlockingOperationInternal (localPath, action, cancellationToken);
 				return Task.CompletedTask;
 			}
 
 			var src = LinkTokenToDispose (ref cancellationToken);
 
-			return DedicatedOperationFactory.StartNew (() => {
+			return ExclusiveOperationFactory.StartNew (() => {
 				try {
 					RunBlockingOperationInternal (localPath, action, cancellationToken);
 				} finally {
@@ -754,19 +767,19 @@ namespace MonoDevelop.VersionControl.Git
 		internal Task<T> RunBlockingOperationAsync<T> (Func<CancellationToken, T> action, CancellationToken cancellationToken = default)
 		{
 			EnsureInitialized ();
-			if (IsGitThread) {
+			if (IsVcsThread) {
 				return Task.FromResult (RunBlockingOperationInternal (action, cancellationToken));
 			}
 
 			var src = LinkTokenToDispose (ref cancellationToken);
-			return DedicatedOperationFactory.StartNew<T> (() => {
+			return ExclusiveOperationFactory.StartNew<T> (() => {
 				try {
 					return action (cancellationToken);
 				} finally {
 					src.Dispose ();
 				}
 			}, cancellationToken);
-			
+
 			T RunBlockingOperationInternal (Func<CancellationToken, T> action, CancellationToken cancellationToken)
 			{
 				if (!WaitAndFreezeEvents (cancellationToken))
@@ -811,45 +824,27 @@ namespace MonoDevelop.VersionControl.Git
 		protected override Task<Revision []> OnGetHistoryAsync (FilePath localFile, Revision since, CancellationToken cancellationToken)
 		{
 			return RunOperationAsync ((token) => {
-				var hc = GetHeadCommit (RootRepository);
-				if (hc == null)
-					return new GitRevision [0];
+				var hc = GitApiRootRepository.ReadHead ();
+				if (hc == null || hc.HeadType != HeadType.Normal && hc.HeadType != HeadType.Detached)
+					return Array.Empty<Revision> ();
 
-				var sinceRev = since != null ? ((GitRevision)since).GetCommit (RootRepository) : null;
-				IEnumerable<Commit> commits = RootRepository.Commits.QueryBy (new CommitFilter { SortBy = CommitSortStrategies.Topological });
-				if (localFile.CanonicalPath != RootPath.CanonicalPath.ResolveLinks ()) {
-					var localPath = RootRepository.ToGitPath (localFile);
-					commits = commits.Where (c => {
-						int count = c.Parents.Count ();
-						if (count > 1)
-							return false;
+				var options = HistoryOptions.Default;
+				options.Order = HistoryOrder.TopographicalOrderDecending;
+				if (localFile.CanonicalPath != RootPath.CanonicalPath.ResolveLinks ())
+					options.HintPath = localFile;
 
-						var localTreeEntry = c.Tree [localPath];
-						if (localTreeEntry == null)
-							return false;
+				var localPath = RootRepository.ToGitPath (localFile);
 
-						if (count == 0)
-							return true;
-
-						var parentTreeEntry = c.Parents.Single ().Tree [localPath];
-						return parentTreeEntry == null || localTreeEntry.Target.Id != parentTreeEntry.Target.Id;
-					});
-				}
-
-				return commits.TakeWhile (c => c != sinceRev).Select (commit => {
-					var author = commit.Author;
-					var shortMessage = commit.MessageShort;
-					if (shortMessage.Length > 50) {
-						shortMessage = shortMessage.Substring (0, 50) + "…";
-					}
-
-					var rev = new GitRevision (this, RootRepository.Info.WorkingDirectory, commit, author.When.LocalDateTime, author.Name, commit.Message) {
-						Email = author.Email,
-						ShortMessage = shortMessage,
+				var result = new List<Revision> ();
+				foreach (var commit in GitApiRootRepository.EnumerateCommits (hc, options)) {
+					if (since != null && commit.RevisionText == since.ToString ())
+						break;
+					var rev = new GitRevision (this, RootRepository.Info.WorkingDirectory, commit) {
 						FileForChanges = localFile,
 					};
-					return rev;
-				}).Cast<Revision> ().ToArray();
+					result.Add (rev);
+				}
+				return result.ToArray ();
 			}, cancellationToken: cancellationToken);
 		}
 
@@ -942,10 +937,9 @@ namespace MonoDevelop.VersionControl.Git
 		// This way we reduce the number of GitRevisions created and RevWalks done.
 		Dictionary<FilePath, GitRevision> versionInfoCacheRevision = new Dictionary<FilePath, GitRevision> ();
 		Dictionary<FilePath, GitRevision> versionInfoCacheEmptyRevision = new Dictionary<FilePath, GitRevision> ();
-		async Task<VersionInfo[]> GetDirectoryVersionInfoAsync (FilePath localDirectory, IEnumerable<FilePath> localFileNames, bool getRemoteStatus, bool recursive, CancellationToken cancellationToken)
+		async Task<VersionInfo []> GetDirectoryVersionInfoAsync (FilePath localDirectory, IEnumerable<FilePath> localFileNames, bool getRemoteStatus, bool recursive, CancellationToken cancellationToken)
 		{
 			var versions = new List<VersionInfo> ();
-
 			if (localFileNames != null) {
 				var localFiles = new List<FilePath> ();
 				var groups = GroupByRepository (localFileNames);
@@ -954,7 +948,7 @@ namespace MonoDevelop.VersionControl.Git
 					GitRevision arev;
 					lock (versionInfoCacheEmptyRevision) {
 						if (!versionInfoCacheEmptyRevision.TryGetValue (repositoryRoot, out arev)) {
-							arev = new GitRevision (this, repositoryRoot, null);
+							arev = new GitRevision (this, repositoryRoot, (Commit)null);
 							versionInfoCacheEmptyRevision.Add (repositoryRoot, arev);
 						}
 					}
@@ -962,7 +956,7 @@ namespace MonoDevelop.VersionControl.Git
 						if (Directory.Exists (p)) {
 							if (recursive)
 								versions.AddRange (await GetDirectoryVersionInfoAsync (p, getRemoteStatus, true, cancellationToken).ConfigureAwait (false));
-							versions.Add (new VersionInfo (p, "", true, VersionStatus.Versioned, arev, VersionStatus.Versioned, null));
+							versions.Add (new VersionInfo (p, "", true, VersionStatus.Versioned, arev, null));
 						} else
 							localFiles.Add (p);
 					}
@@ -974,7 +968,7 @@ namespace MonoDevelop.VersionControl.Git
 						var repositoryRoot = repository.Info.WorkingDirectory;
 
 						GitRevision rev = null;
-						Commit headCommit = await GetHeadCommitAsync (repository).ConfigureAwait (false);
+						var headCommit = await GetHeadCommitAsync (repository).ConfigureAwait (false);
 						if (headCommit != null) {
 							bool runAsync = false;
 							lock (versionInfoCacheRevision) {
@@ -991,7 +985,7 @@ namespace MonoDevelop.VersionControl.Git
 							}
 						}
 
-						await RunOperationAsync ((token) => GetFilesVersionInfoCore (repository, rev, group.ToList (), versions)).ConfigureAwait (false);
+						await GetFilesVersionInfoCoreAsync (repository, rev, group.ToList (), versions).ConfigureAwait (false);
 					}
 				}
 			} else {
@@ -1003,16 +997,16 @@ namespace MonoDevelop.VersionControl.Git
 				foreach (var group in GroupByRepositoryRoot (directories)) {
 					lock (versionInfoCacheEmptyRevision) {
 						if (!versionInfoCacheEmptyRevision.TryGetValue (group.Key, out arev)) {
-							arev = new GitRevision (this, group.Key, null);
+							arev = new GitRevision (this, group.Key, (Commit)null);
 							versionInfoCacheEmptyRevision.Add (group.Key, arev);
 						}
 					}
 					foreach (var p in group)
-						versions.Add (new VersionInfo (p, "", true, VersionStatus.Versioned, arev, VersionStatus.Versioned, null));
+						versions.Add (new VersionInfo (p, "", true, VersionStatus.Versioned, arev, null));
 				}
 
 				var rootRepository = GetRepository (RootPath);
-				Commit headCommit = await GetHeadCommitAsync (rootRepository).ConfigureAwait (false);
+				var headCommit = await GetHeadCommitAsync (rootRepository).ConfigureAwait (false);
 				if (headCommit != null) {
 					bool runAsync = false;
 
@@ -1033,78 +1027,124 @@ namespace MonoDevelop.VersionControl.Git
 						}
 					}
 				}
-
-				await RunOperationAsync ((token) => GetDirectoryVersionInfoCore (rootRepository, arev, localDirectory.CanonicalPath, versions, recursive)).ConfigureAwait (false);
+				await GetDirectoryVersionInfoCoreAsync (rootRepository, arev, localDirectory.CanonicalPath, versions, recursive).ConfigureAwait (false);
 			}
 
 			return versions.ToArray ();
 		}
 
-		void GetFilesVersionInfoCore (LibGit2Sharp.Repository repo, GitRevision rev, List<FilePath> localPaths, List<VersionInfo> versions)
+		event EventHandler<Microsoft.TeamFoundation.GitApi.OperationOutput> GitProcessOutput;
+
+		async Task GetFilesVersionInfoCoreAsync (LibGit2Sharp.Repository repo, GitRevision rev, List<FilePath> localPaths, List<VersionInfo> versions)
 		{
-			if (IsDisposed)
-				return;
-			AssertIsGitThread ();
-			foreach (var localPath in localPaths) {
-				if (!localPath.IsDirectory) {
-					var file = repo.ToGitPath (localPath);
-					var status = repo.RetrieveStatus (file);
-					AddStatus (repo, rev, file, versions, status, null);
+			var paths = localPaths.Where (f => !f.IsDirectory).Select (f => repo.ToGitPath (f)).ToArray ();
+			var ctx = Microsoft.TeamFoundation.GitApi.ExecutionContext.CreateNew ();
+			ctx.Git.Installation = InstallationDetector.CreateInstallation (null, KnownDistribution.GitForOsX);
+			using (var gitRepository = Microsoft.TeamFoundation.GitApi.Repository.Open (ctx, repo.Info.WorkingDirectory)) {
+				var options = Microsoft.TeamFoundation.GitApi.StatusOptions.Default;
+				options.Ignored = Microsoft.TeamFoundation.GitApi.StatusIgnored.Matching;
+				var sb = StringBuilderCache.Allocate ();
+				foreach (var path in localPaths) {
+					if (sb.Length > 0)
+						sb.Append (" ");
+					sb.Append (path);
+				}
+				options.Path = StringBuilderCache.ReturnAndFree (sb);
+
+				var statusSnapshot = gitRepository.ReadStatus (options);
+
+				foreach (var file in statusSnapshot.IgnoredItems) {
+					var versionPath = repo.FromGitPath(file);
+					versions.Add (new VersionInfo(versionPath, "", false, VersionStatus.Ignored, rev, null));
+				}
+
+				foreach (var file in statusSnapshot.TrackedItems) {
+					var versionPath = repo.FromGitPath(file.Path);
+					var fstatus = ConvertGitState(file);
+					versions.Add (new VersionInfo(versionPath, "", file.WorkTreeMode == Microsoft.TeamFoundation.GitApi.TreeEntryDetailMode.Directory, fstatus, rev, null));
+				}
+
+				foreach (var file in statusSnapshot.UnmergedItems) {
+					var versionPath = repo.FromGitPath(file.Path);
+					var fstatus = GitVersionStatus.Unmerged;
+					versions.Add (new VersionInfo(versionPath, "", file.WorktreeMode == Microsoft.TeamFoundation.GitApi.TreeEntryDetailMode.Directory, fstatus, rev, null));
+				}
+
+				foreach (var file in statusSnapshot.UntrackedItems) {
+					var versionPath = repo.FromGitPath(file);
+					versions.Add (new VersionInfo(versionPath, "", false, GitVersionStatus.Untracked, rev, null));
+				}
+
+				var fileTable = new System.Collections.Generic.Dictionary<string, string []> ();
+
+				// Add all files with no explict status as versioned (git doesn't report versioned files with no changes)
+				foreach (var file in paths) {
+					var versionPath = repo.FromGitPath (file);
+					if (versions.Any (v => v.LocalPath.Equals (versionPath)))
+						continue;
+
+					var path = versionPath.ParentDirectory;
+
+					if (!fileTable.TryGetValue (path, out var files)) {
+						try {
+							files = Directory.GetFiles (path);
+						} catch (Exception e) {
+							files = Array.Empty<string> ();
+							LoggingService.LogInternalError (e);
+						}
+						fileTable [path] = files;
+					}
+					bool exists = false;
+					foreach (var f in files) {
+						if (f == (string)versionPath) {
+							exists = true;
+							break;
+						}
+					}
+					var status = exists ? GitVersionStatus.Versioned : GitVersionStatus.Untracked;
+					versions.Add (new VersionInfo(versionPath, "", false, status, rev, null));
 				}
 			}
 		}
 
-		static void AddStatus (LibGit2Sharp.Repository repo, GitRevision rev, string file, List<VersionInfo> versions, FileStatus status, string directoryPath)
+		static VersionStatus ConvertGitState (Microsoft.TeamFoundation.GitApi.IStatusEntry status)
 		{
-			VersionStatus fstatus = VersionStatus.Versioned;
-
-			if (status != FileStatus.Unaltered) {
-				if ((status & FileStatus.NewInIndex) != 0)
-					fstatus |= VersionStatus.ScheduledAdd;
-				else if ((status & (FileStatus.DeletedFromIndex | FileStatus.DeletedFromWorkdir)) != 0)
-					fstatus |= VersionStatus.ScheduledDelete;
-				else if ((status & (FileStatus.TypeChangeInWorkdir | FileStatus.TypeChangeInIndex | FileStatus.ModifiedInWorkdir | FileStatus.ModifiedInIndex)) != 0)
-					fstatus |= VersionStatus.Modified;
-				else if ((status & (FileStatus.RenamedInIndex | FileStatus.RenamedInWorkdir)) != 0)
-					fstatus |= VersionStatus.ScheduledReplace;
-				else if ((status & (FileStatus.Nonexistent | FileStatus.NewInWorkdir)) != 0)
-					fstatus = VersionStatus.Unversioned;
-				else if ((status & FileStatus.Ignored) != 0)
-					fstatus = VersionStatus.Ignored;
+			switch (status.IndexStatus) {
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Added:
+				return GitVersionStatus.NewFile;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Modified:
+				return GitVersionStatus.Modified_Staged;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Deleted:
+				return GitVersionStatus.Deleted;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Renamed:
+				return GitVersionStatus.Renamed;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Copied:
+				return GitVersionStatus.Copied;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Unmerged:
+				return GitVersionStatus.Unmerged;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.TypeChange:
+				return GitVersionStatus.TypeChanged;
 			}
 
-			if (repo.Index.Conflicts [file] != null)
-				fstatus = VersionStatus.Versioned | VersionStatus.Conflicted;
-
-			var versionPath = repo.FromGitPath (file);
-			if (directoryPath != null && versionPath.ParentDirectory != directoryPath) {
-				return;
+			switch (status.WorktreeStatus) {
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Modified:
+				return GitVersionStatus.Modified_Unstaged;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Untracked:
+				return GitVersionStatus.Untracked;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Ignored:
+				return VersionStatus.Ignored;
+			case Microsoft.TeamFoundation.GitApi.TreeDifferenceType.Deleted:
+				return VersionStatus.Missing;
 			}
 
-			versions.Add (new VersionInfo (versionPath, "", false, fstatus, rev, fstatus == VersionStatus.Ignored ? VersionStatus.Unversioned : VersionStatus.Versioned, null));
+			return VersionStatus.Versioned;
 		}
 
-		void AssertIsGitThread ()
+		async Task GetDirectoryVersionInfoCoreAsync (LibGit2Sharp.Repository repo, GitRevision rev, FilePath directory, List<VersionInfo> versions, bool recursive)
 		{
-			if (Thread.CurrentThread.ManagedThreadId != GitScheduler.DedicatedThread.ManagedThreadId)
-				throw new InvalidOperationException ();
-		}
-
-		void GetDirectoryVersionInfoCore (LibGit2Sharp.Repository repo, GitRevision rev, FilePath directory, List<VersionInfo> versions, bool recursive)
-		{
-			if (IsDisposed)
-				return;
-			AssertIsGitThread ();
-			var relativePath = repo.ToGitPath (directory);
-			var status = repo.RetrieveStatus (new StatusOptions {
-				DisablePathSpecMatch = true,
-				PathSpec = relativePath != "." ? new [] { relativePath } : new string[0],
-				IncludeUnaltered = true,
-			});
-
-			foreach (var statusEntry in status) {
-				AddStatus (repo, rev, statusEntry.FilePath, versions, statusEntry.State, recursive ? null : directory);
-			}
+			var newList = new List<FilePath> ();
+			newList.Add (directory);
+			await GetFilesVersionInfoCoreAsync (repo, rev, newList, versions);
 		}
 
 		protected internal override async Task<VersionControlOperation> GetSupportedOperationsAsync (VersionInfo vinfo, CancellationToken cancellationToken)
@@ -1119,21 +1159,39 @@ namespace MonoDevelop.VersionControl.Git
 			return ops;
 		}
 
+		static Microsoft.Extensions.ObjectPool.ObjectPool<Stack<FilePath>> stackPool = ObjectPoolUtil.CreateStackPool<FilePath> ();
 		static void CollectFiles (List<FilePath> directories, FilePath dir, bool recursive)
 		{
 			if (!Directory.Exists (dir))
 				return;
+			var directoryStack = stackPool.Get ();
+			directoryStack.Push (dir);
 
-			directories.AddRange (Directory.GetDirectories (dir, "*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
-				.Select (f => new FilePath (f)));
+			while (directoryStack.Count > 0) {
+				var cur = directoryStack.Pop ();
+				foreach (var d in Directory.GetDirectories (cur, "*", SearchOption.TopDirectoryOnly)) {
+					if (d.EndsWith (".git"))
+						continue;
+					directories.Add (d);
+					if (recursive)
+						directoryStack.Push (d);
+				}
+			}
+			stackPool.Return (directoryStack);
 		}
 
-		protected override async Task<Repository> OnPublishAsync (string serverPath, FilePath localPath, FilePath[] files, string message, ProgressMonitor monitor)
+		protected override async Task<Repository> OnPublishAsync (string serverPath, FilePath localPath, FilePath [] files, string message, ProgressMonitor monitor)
 		{
 			// Initialize the repository
 			RootPath = localPath;
 			RootRepository = CreateSafeRepositoryAsync (LibGit2Sharp.Repository.Init (localPath)).Result;
 			RootRepository.Network.Remotes.Add ("origin", Url);
+			// TODO: Replace with:
+			// GitApiRootRepository = Microsoft.TeamFoundation.GitApi.Repository.Initialize (localPath);
+			// GitApiRootRepository.AddRemote ("origin", Url, Microsoft.TeamFoundation.GitApi.RemoteTagOptions.AllTags);
+			//
+			// When removing libgit2
+			GitApiRootRepository = CreateSafeGitRepositoryAsync (localPath).Result;
 
 			// Add the project files
 			ChangeSet cs = CreateChangeSet (localPath);
@@ -1151,15 +1209,17 @@ namespace MonoDevelop.VersionControl.Git
 			await RetryUntilSuccessAsync (monitor, credType => {
 
 				try {
-					RootRepository.Network.Push (RootRepository.Head, new PushOptions {
+					RootRepository.Network.Push (RootRepository.Head, new LibGit2Sharp.PushOptions {
 						OnPushStatusError = delegate (PushStatusError e) {
 							throw new VersionControlException (e.Message);
 						},
 						CredentialsProvider = (url, userFromUrl, types) => GitCredentials.TryGet (url, userFromUrl, types, credType)
 					});
-				} catch(VersionControlException vcex) {
+				} catch (VersionControlException vcex) {
 					RootRepository.Dispose ();
 					RootRepository = null;
+					GitApiRootRepository?.Dispose ();
+					GitApiRootRepository = null;
 					if (RootPath.Combine (".git").IsDirectory)
 						Directory.Delete (RootPath.Combine (".git"), true);
 					LoggingService.LogError ("Failed to publish to the repository", vcex);
@@ -1262,22 +1322,24 @@ namespace MonoDevelop.VersionControl.Git
 		{
 			monitor.BeginTask (GettextCatalog.GetString ("Fetching"), 1);
 			monitor.Log.WriteLine (GettextCatalog.GetString ("Fetching from '{0}'", remote));
-			int progress = 0;
+			await RunBlockingOperationAsync ((token) => {
 
-			var innerTask = await RunBlockingOperationAsync ((token) => {
-				var refSpec = RootRepository.Network.Remotes [remote]?.FetchRefSpecs.Select (spec => spec.Specification);
-				return RetryUntilSuccessAsync (monitor, credType => {
-					LibGit2Sharp.Commands.Fetch (RootRepository, remote, refSpec, new FetchOptions {
-						CredentialsProvider = (url, userFromUrl, types) => GitCredentials.TryGet (url, userFromUrl, types, credType),
-						OnTransferProgress = tp => OnTransferProgress (tp, monitor, ref progress),
-					}, string.Empty);
-					return Task.CompletedTask;
-				});
-			}).ConfigureAwait (false);
-			await innerTask.ConfigureAwait (false);
+				var options = new Microsoft.TeamFoundation.GitApi.FetchOptions {
+					Flags = Microsoft.TeamFoundation.GitApi.FetchOptionsFlags.None,
+					ProgressCallback = new ProgressMonitorOperationBinder (monitor)
+				};
 
-			monitor.Step (1);
-			monitor.EndTask ();
+				foreach (var r in GitApiRootRepository.ReadRemotes ()) {
+					if (r.Name == remote) {
+						GitApiRootRepository.Fetch (r, options);
+						monitor.Step (1);
+						monitor.EndTask ();
+						return;
+					}
+				}
+				LoggingService.LogError ("Can't find remote " + remote);
+				MessageService.ShowError (GettextCatalog.GetString ("Can't find remote {0}.", remote));
+			});
 		}
 
 		async Task<(bool, int, GitUpdateOptions)> CommonPreMergeRebase (GitUpdateOptions options, ProgressMonitor monitor, int stashIndex, string branch, string actionButtonTitle, bool isUpdate)
@@ -1287,9 +1349,8 @@ namespace MonoDevelop.VersionControl.Git
 			monitor.Step (1);
 
 			if ((options & GitUpdateOptions.SaveLocalChanges) != GitUpdateOptions.SaveLocalChanges) {
-				const VersionStatus unclean = VersionStatus.Modified | VersionStatus.ScheduledAdd | VersionStatus.ScheduledDelete;
 				bool modified = false;
-				if ((await GetDirectoryVersionInfoAsync (RootPath, false, true, monitor.CancellationToken).ConfigureAwait (false)).Any (v => (v.Status & unclean) != VersionStatus.Unversioned))
+				if ((await GetDirectoryVersionInfoAsync (RootPath, false, true, monitor.CancellationToken).ConfigureAwait (false)).Any (v => v.Status.IsScheduledAdd || v.Status.IsScheduledDelete || v.Status.IsModified))
 					modified = true;
 
 				if (modified) {
@@ -1307,7 +1368,7 @@ namespace MonoDevelop.VersionControl.Git
 				monitor.Log.WriteLine (GettextCatalog.GetString ("Saving local changes"));
 				Stash stash;
 				if (!TryCreateStash (monitor, GetStashName ("_tmp_"), out stash))
-					return (false, - 1, options);
+					return (false, -1, options);
 
 				if (stash != null)
 					stashIndex = 0;
@@ -1337,7 +1398,7 @@ namespace MonoDevelop.VersionControl.Git
 			return result;
 		}
 
-		bool ConflictResolver(LibGit2Sharp.Repository repository, ProgressMonitor monitor, Commit resetToIfFail, string message)
+		bool ConflictResolver (LibGit2Sharp.Repository repository, ProgressMonitor monitor, Commit resetToIfFail, string message)
 		{
 			foreach (var conflictFile in repository.Index.Conflicts) {
 				ConflictResult res = ResolveConflict (repository.FromGitPath (conflictFile.Ancestor.Path));
@@ -1418,7 +1479,7 @@ namespace MonoDevelop.VersionControl.Git
 					int i = 1;
 					foreach (var com in toApply) {
 						monitor.Log.WriteLine (GettextCatalog.GetString ("Cherry-picking {0} - {1}/{2}", com.Id, i, count));
-						CherryPickResult cherryRes = RootRepository.CherryPick (com, com.Author, new CherryPickOptions {
+						CherryPickResult cherryRes = RootRepository.CherryPick (com, com.Author, new LibGit2Sharp.CherryPickOptions {
 							CheckoutNotifyFlags = refreshFlags,
 							OnCheckoutNotify = (string path, CheckoutNotifyFlags flags) => RefreshFile (path, flags),
 						});
@@ -1457,12 +1518,12 @@ namespace MonoDevelop.VersionControl.Git
 
 				// Do a merge.
 				MergeResult mergeResult = await RunBlockingOperationAsync ((token) =>
-					RootRepository.Merge (branch, sig, new MergeOptions {
+					RootRepository.Merge (branch, sig, new LibGit2Sharp.MergeOptions {
 						CheckoutNotifyFlags = refreshFlags,
 						OnCheckoutNotify = (string path, CheckoutNotifyFlags flags) => RefreshFile (path, flags),
 					}), monitor.CancellationToken).ConfigureAwait (false);
 				if (mergeResult.Status == MergeStatus.Conflicts)
-						ConflictResolver (RootRepository, monitor, RootRepository.Head.Tip, RootRepository.Info.Message);
+					ConflictResolver (RootRepository, monitor, RootRepository.Head.Tip, RootRepository.Info.Message);
 			} finally {
 				await CommonPostMergeRebase (stashIndex, GitUpdateOptions.SaveLocalChanges, monitor, oldHead).ConfigureAwait (false);
 			}
@@ -1475,7 +1536,7 @@ namespace MonoDevelop.VersionControl.Git
 				var dlg = new ConflictResolutionDialog ();
 				try {
 					dlg.Load (file);
-					var dres = (Gtk.ResponseType) MessageService.RunCustomDialog (dlg);
+					var dres = (Gtk.ResponseType)MessageService.RunCustomDialog (dlg);
 					dlg.Hide ();
 					switch (dres) {
 					case Gtk.ResponseType.Cancel:
@@ -1506,47 +1567,66 @@ namespace MonoDevelop.VersionControl.Git
 			Signature sig = GetSignature ();
 			if (sig == null)
 				return;
+			EventHandler<Microsoft.TeamFoundation.GitApi.OperationOutput> handler = (object o, Microsoft.TeamFoundation.GitApi.OperationOutput output) => {
+			};
+			GitProcessOutput += handler;
+			try {
+				var repo = (GitRepository)changeSet.Repository;
+				var sheduledFiles = await GetSheduledLocalPathItems (changeSet, monitor.CancellationToken).ConfigureAwait (false);
+				await RunBlockingOperationAsync ((token) => {
+					var filesToReset = new List<string> ();
+					try {
+						// Unstage added files not included in the changeSet
+						foreach (var file in sheduledFiles) {
+							if (!changeSet.Items.Any (f => f.LocalPath.Equals (file)))
+								filesToReset.Add (RootRepository.ToGitPath (file));
+						}
 
-			var repo = (GitRepository)changeSet.Repository;
-			var addedFiles = await GetAddedLocalPathItems (changeSet, monitor.CancellationToken).ConfigureAwait (false);
+						if (filesToReset.Count > 0) {
+							GitApiRootRepository.ResetPaths (filesToReset);
+						}
+					} catch (Exception ex) {
+						LoggingService.LogInternalError ("Failed to commit.", ex);
+						return;
+					}
+					try {
+						// Commit
+						var updateOptions = Microsoft.TeamFoundation.GitApi.UpdateOptions.Default;
+						GitApiRootRepository.Add (changeSet.Items.Select (i => i.LocalPath).Where (f => !filesToReset.Contains (f) && !sheduledFiles.Contains (f)).ToPathStrings (), updateOptions);
+						var commitOptions = Microsoft.TeamFoundation.GitApi.CommitOptions.Default;
+						if (changeSet.ExtendedProperties.Contains ("Git.AuthorName")) {
+							commitOptions.AuthorName = (string)changeSet.ExtendedProperties ["Git.AuthorName"];
+							commitOptions.AuthorEmail = (string)changeSet.ExtendedProperties ["Git.AuthorEmail"];
+						}
 
-			await RunBlockingOperationAsync ((token) => {
-				try {
-					// Unstage added files not included in the changeSet
-					if (addedFiles.Any ())
-						LibGit2Sharp.Commands.Unstage (RootRepository, addedFiles.ToPathStrings ());
-				} catch (Exception ex) {
-					LoggingService.LogInternalError ("Failed to commit.", ex);
-					return;
+						GitApiRootRepository.Commit (message, commitOptions);
+					} catch (Exception ex) {
+						LoggingService.LogInternalError ("Failed to commit.", ex);
+					} finally {
+						// Always at the end, stage again the unstage added files not included in the changeSet
+						if (filesToReset.Count > 0) {
+							GitApiRootRepository.Add (filesToReset, Microsoft.TeamFoundation.GitApi.UpdateOptions.Default);
+						}
+					}
+
+				}, cancellationToken: monitor.CancellationToken).ConfigureAwait (false);
+
+				// update file status
+				foreach (var item in changeSet.Items) {
+					await this.GetVersionInfoAsync (item.LocalPath, cancellationToken: monitor.CancellationToken);
 				}
-				try {
-					// Commit
-					LibGit2Sharp.Commands.Stage (RootRepository, changeSet.Items.Select (i => i.LocalPath).ToPathStrings ());
 
-					if (changeSet.ExtendedProperties.Contains ("Git.AuthorName"))
-						RootRepository.Commit (message, new Signature (
-							(string)changeSet.ExtendedProperties ["Git.AuthorName"],
-							(string)changeSet.ExtendedProperties ["Git.AuthorEmail"],
-							DateTimeOffset.Now), sig);
-					else
-						RootRepository.Commit (message, sig, sig);
-				} catch (Exception ex) {
-					LoggingService.LogInternalError ("Failed to commit.", ex);
-				} finally {
-					// Always at the end, stage again the unstage added files not included in the changeSet
-					if (addedFiles.Any ())
-						LibGit2Sharp.Commands.Stage (RootRepository, addedFiles.ToPathStrings ());
-				}
-			}, cancellationToken: monitor.CancellationToken).ConfigureAwait (false);
+			} finally {
+				GitProcessOutput -= handler;
+			}
 		}
 
-		async Task<HashSet<FilePath>> GetAddedLocalPathItems (ChangeSet changeSet, CancellationToken cancellationToken)
+		async Task<HashSet<FilePath>> GetSheduledLocalPathItems (ChangeSet changeSet, CancellationToken cancellationToken)
 		{
 			var addedLocalPathItems = new HashSet<FilePath> ();
 			try {
 				var directoryVersionInfo = await GetDirectoryVersionInfoAsync (changeSet.BaseLocalPath, false, true, cancellationToken).ConfigureAwait (false);
-				const VersionStatus addedStatus = VersionStatus.Versioned | VersionStatus.ScheduledAdd;
-				var directoryVersionInfoItems = directoryVersionInfo.Where (vi => vi.Status == addedStatus);
+				var directoryVersionInfoItems = directoryVersionInfo.Where (vi => vi.Status.IsScheduled);
 
 				foreach (var item in directoryVersionInfoItems)
 					foreach (var changeSetItem in changeSet.Items)
@@ -1583,9 +1663,9 @@ namespace MonoDevelop.VersionControl.Git
 				});
 				name = lname;
 				email = lemail;
-			} catch {
+			} catch (Exception e) {
 				string dlgName = null, dlgEmail = null;
-
+				LoggingService.LogWarning ("GetUserInfo got an exception fall back to git config dialog:", e);
 				Runtime.RunInMainThread (() => {
 					var dlg = new UserGitConfigDialog ();
 					try {
@@ -1607,6 +1687,7 @@ namespace MonoDevelop.VersionControl.Git
 
 		public void SetUserInfo (string name, string email)
 		{
+			GitApiRootRepository.ReadConfigList ();
 			RunOperation (() => {
 				RootRepository.Config.Set ("user.name", name);
 				RootRepository.Config.Set ("user.email", email);
@@ -1615,6 +1696,45 @@ namespace MonoDevelop.VersionControl.Git
 
 		protected override async Task OnCheckoutAsync (FilePath targetLocalPath, Revision rev, bool recurse, ProgressMonitor monitor)
 		{
+			try {
+				monitor.BeginTask ("Cloning…", 100);
+				if (Directory.Exists (targetLocalPath)) {
+					FileService.DeleteDirectory (targetLocalPath);
+				}
+				var ctx = Microsoft.TeamFoundation.GitApi.ExecutionContext.CreateNew ();
+				GitAskPassPipe.SetupContext (ctx);
+				ctx.Git.Installation = InstallationDetector.CreateInstallation (null, KnownDistribution.GitForOsX);
+				var options = new Microsoft.TeamFoundation.GitApi.CloneOptions ();
+				options.RecurseSubmodules = true;
+				options.Checkout = true;
+				options.ProgressCallback = new ProgressMonitorOperationBinder (monitor);
+				try {
+					using (var pipe = new GitAskPassPipe (Url)) {
+						pipe.StartPipe ();
+						GitApiRootRepository = await Microsoft.TeamFoundation.GitApi.Repository.CloneAsync (ctx, Url, targetLocalPath, options, null, monitor.CancellationToken);
+						RootPath = targetLocalPath.CanonicalPath;
+						if (monitor.CancellationToken.IsCancellationRequested || RootPath.IsNull)
+							return;
+					}
+				} catch (Exception e) {
+					LoggingService.LogInternalError ("Error while cloning repository " + rev + " recuse: " + recurse + " using fallback.", e);
+					await OnCheckoutAsync_LibGitFallback (targetLocalPath, rev, recurse, monitor);
+				}
+
+				RootRepository = await CreateSafeRepositoryAsync (RootPath);
+				InitFileWatcher ();
+			} catch (OperationCanceledException) {
+				return;
+			} catch (Exception e) {
+				LoggingService.LogInternalError ("Error while cloning repository " + rev + " recuse: " + recurse, e);
+				throw e;
+			} finally {
+				monitor.EndTask ();
+			}
+		}
+
+		async Task OnCheckoutAsync_LibGitFallback (FilePath targetLocalPath, Revision rev, bool recurse, ProgressMonitor monitor)
+		{
 			int transferProgress = 0;
 			int checkoutProgress = 0;
 
@@ -1622,7 +1742,7 @@ namespace MonoDevelop.VersionControl.Git
 				monitor.BeginTask (GettextCatalog.GetString ("Cloning…"), 2);
 				bool skipSubmodules = false;
 				var innerTask = await RunOperationAsync ((token) => RetryUntilSuccessAsync (monitor, credType => {
-					var options = new CloneOptions {
+					var options = new LibGit2Sharp.CloneOptions {
 						CredentialsProvider = (url, userFromUrl, types) => {
 							transferProgress = checkoutProgress = 0;
 							return GitCredentials.TryGet (url, userFromUrl, types, credType);
@@ -1647,7 +1767,7 @@ namespace MonoDevelop.VersionControl.Git
 					} catch (UserCancelledException) {
 						return Task.CompletedTask;
 					}
-					var updateOptions = new SubmoduleUpdateOptions {
+					var updateOptions = new LibGit2Sharp.SubmoduleUpdateOptions {
 						Init = true,
 						CredentialsProvider = options.CredentialsProvider,
 						OnTransferProgress = options.OnTransferProgress,
@@ -1674,9 +1794,10 @@ namespace MonoDevelop.VersionControl.Git
 				RootPath = RootPath.CanonicalPath.ParentDirectory;
 
 				RootRepository = await CreateSafeRepositoryAsync (RootPath).ConfigureAwait (false);
+				GitApiRootRepository = await CreateSafeGitRepositoryAsync (RootPath).ConfigureAwait (false);
 				InitFileWatcher ();
 				if (skipSubmodules) {
-					MessageService.ShowError (GettextCatalog.GetString("Cloning submodules failed"), GettextCatalog.GetString ("Please use the command line client to init the submodules manually."));
+					MessageService.ShowError (GettextCatalog.GetString ("Cloning submodules failed"), GettextCatalog.GetString ("Please use the command line client to init the submodules manually."));
 				}
 			} catch (Exception e) {
 				LoggingService.LogInternalError ("Error while cloning repository " + rev + " recuse: " + recurse, e);
@@ -1686,7 +1807,7 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
-		static void RecursivelyCloneSubmodules (string repoPath, SubmoduleUpdateOptions updateOptions, ProgressMonitor monitor)
+		static void RecursivelyCloneSubmodules (string repoPath, LibGit2Sharp.SubmoduleUpdateOptions updateOptions, ProgressMonitor monitor)
 		{
 			var submodules = new List<string> ();
 			using (var repo = new LibGit2Sharp.Repository (repoPath)) {
@@ -1721,6 +1842,76 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
+		class ProgressMonitorOperationBinder : OperationCallback
+		{
+			ProgressMonitor monitor;
+
+			public ProgressMonitorOperationBinder (ProgressMonitor monitor)
+			{
+				this.monitor = monitor;
+			}
+
+			public override void OperationOutput (OperationOutput output)
+			{
+				if (output.Source == OutputSource.Error) {
+					monitor.ErrorLog.WriteLine (output.Message);
+					return;
+				}
+				monitor.Log.WriteLine (output.Message);
+			}
+
+			string oldName;
+			public override bool OperationProgress (OperationProgress operationProgress)
+			{
+				if (oldName != operationProgress.Name) {
+					if (oldName != null)
+						monitor.EndTask ();
+					oldName = operationProgress.Name;
+					completed = 0;
+					switch (operationProgress) {
+					case ReceivingObjectsProgress receivingObjectsProgress:
+						monitor.BeginTask (GettextCatalog.GetString ("Receiving objects…"), 100);
+						break;
+					case CheckingOutFilesProgress checkingOutFilesProgress:
+						monitor.BeginTask (GettextCatalog.GetString ("Checking out files…"), 100);
+						break;
+					case ResolvingDeltasProgress resolvingDeltasProgress:
+						monitor.BeginTask (GettextCatalog.GetString ("Resolving deltas…"), 100);
+						break;
+					case WaitingForRemoteMessage waitingForRemoteMessage:
+						monitor.BeginTask (GettextCatalog.GetString ("Waiting for remote message…"), 100);
+						break;
+					default:
+						return false;
+					}
+				}
+
+				switch (operationProgress) {
+				case ReceivingObjectsProgress receivingObjectsProgress:
+					SetCompleted (receivingObjectsProgress.Completed);
+					break;
+				case CheckingOutFilesProgress checkingOutFilesProgress:
+					SetCompleted (checkingOutFilesProgress.Completed);
+					break;
+				case ResolvingDeltasProgress resolvingDeltasProgress:
+					SetCompleted (resolvingDeltasProgress.Completed);
+					break;
+				case WaitingForRemoteMessage waitingForRemoteMessage:
+					break;
+				default:
+					return false;
+				}
+				return true;
+			}
+			double completed;
+
+			private void SetCompleted (double cur)
+			{
+				monitor.Step ((int)((cur - this.completed) * 100));
+				this.completed = cur;
+			}
+		}
+
 		protected override async Task OnRevertAsync (FilePath [] localPaths, bool recurse, ProgressMonitor monitor)
 		{
 			foreach (var group in GroupByRepositoryRoot (localPaths)) {
@@ -1734,7 +1925,7 @@ namespace MonoDevelop.VersionControl.Git
 								if (vi.Status == VersionStatus.Unversioned)
 									continue;
 
-								if ((vi.Status & VersionStatus.ScheduledAdd) == VersionStatus.ScheduledAdd)
+								if (vi.Status.IsScheduledAdd)
 									toUnstage.Add (vi.LocalPath);
 								else
 									toCheckout.Add (vi.LocalPath);
@@ -1745,7 +1936,7 @@ namespace MonoDevelop.VersionControl.Git
 						if (vi.Status == VersionStatus.Unversioned)
 							continue;
 
-						if ((vi.Status & VersionStatus.ScheduledAdd) == VersionStatus.ScheduledAdd)
+						if (vi.Status.IsScheduledAdd)
 							toUnstage.Add (vi.LocalPath);
 						else
 							toCheckout.Add (vi.LocalPath);
@@ -1757,7 +1948,7 @@ namespace MonoDevelop.VersionControl.Git
 					var repoFiles = repository.ToGitPath (toCheckout);
 					int progress = 0;
 					if (toCheckout.Any ()) {
-						repository.CheckoutPaths ("HEAD", repoFiles, new CheckoutOptions {
+						repository.CheckoutPaths ("HEAD", repoFiles, new LibGit2Sharp.CheckoutOptions {
 							OnCheckoutProgress = (path, completedSteps, totalSteps) => OnCheckoutProgress (completedSteps, totalSteps, monitor, ref progress),
 							CheckoutModifiers = CheckoutModifiers.Force,
 							CheckoutNotifyFlags = refreshFlags,
@@ -1787,7 +1978,7 @@ namespace MonoDevelop.VersionControl.Git
 			throw new NotSupportedException ();
 		}
 
-		protected override async Task OnAddAsync (FilePath[] localPaths, bool recurse, ProgressMonitor monitor)
+		protected override async Task OnAddAsync (FilePath [] localPaths, bool recurse, ProgressMonitor monitor)
 		{
 			foreach (var group in GroupByRepository (localPaths)) {
 				var files = group.Where (f => !f.IsDirectory);
@@ -1796,7 +1987,7 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
-		protected override async Task OnDeleteFilesAsync (FilePath[] localPaths, bool force, ProgressMonitor monitor, bool keepLocal)
+		protected override async Task OnDeleteFilesAsync (FilePath [] localPaths, bool force, ProgressMonitor monitor, bool keepLocal)
 		{
 			await DeleteCore (localPaths, keepLocal, monitor).ConfigureAwait (false);
 
@@ -1804,7 +1995,7 @@ namespace MonoDevelop.VersionControl.Git
 				if (keepLocal) {
 					// Undo addition of files.
 					VersionInfo info = await GetVersionInfoAsync (path, VersionInfoQueryFlags.IgnoreCache, monitor.CancellationToken).ConfigureAwait (false);
-					if (info != null && info.HasLocalChange (VersionStatus.ScheduledAdd)) {
+					if (info != null && info.Status.IsScheduledAdd) {
 						// Revert addition.
 						await RevertAsync (path, false, monitor);
 					}
@@ -1816,7 +2007,7 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
-		protected override async Task OnDeleteDirectoriesAsync (FilePath[] localPaths, bool force, ProgressMonitor monitor, bool keepLocal)
+		protected override async Task OnDeleteDirectoriesAsync (FilePath [] localPaths, bool force, ProgressMonitor monitor, bool keepLocal)
 		{
  			await DeleteCore (localPaths, keepLocal, monitor).ConfigureAwait (false);
 
@@ -1824,7 +2015,7 @@ namespace MonoDevelop.VersionControl.Git
 				if (keepLocal) {
 					// Undo addition of directories and files.
 					foreach (var info in await GetDirectoryVersionInfoAsync (path, false, true, monitor.CancellationToken).ConfigureAwait (false)) {
-						if (info != null && info.HasLocalChange (VersionStatus.ScheduledAdd)) {
+						if (info != null && info.Status.IsScheduledAdd) {
 							// Revert addition.
 							await RevertAsync (path, true, monitor).ConfigureAwait (false);
 						}
@@ -1843,7 +2034,7 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
-		async Task DeleteCore (FilePath[] localPaths, bool keepLocal, ProgressMonitor monitor)
+		async Task DeleteCore (FilePath [] localPaths, bool keepLocal, ProgressMonitor monitor)
 		{
 			foreach (var group in GroupByRepository (localPaths)) {
 				if (!keepLocal)
@@ -1887,7 +2078,7 @@ namespace MonoDevelop.VersionControl.Git
 		public override async Task<DiffInfo []> PathDiffAsync (FilePath baseLocalPath, FilePath [] localPaths, bool remoteDiff, CancellationToken cancellationToken)
 		{
 			var diffs = new List<DiffInfo> ();
-			VersionInfo[] vinfos = await GetDirectoryVersionInfoAsync (baseLocalPath, localPaths, false, true, cancellationToken).ConfigureAwait (false);
+			VersionInfo [] vinfos = await GetDirectoryVersionInfoAsync (baseLocalPath, localPaths, false, true, cancellationToken).ConfigureAwait (false);
 			foreach (VersionInfo vi in vinfos) {
 				var diff = await GenerateDiffAsync (baseLocalPath, vi).ConfigureAwait (false);
 				if (diff != null)
@@ -1904,7 +2095,7 @@ namespace MonoDevelop.VersionControl.Git
 
 		string GetCommitTextContent (Commit c, FilePath file, LibGit2Sharp.Repository repo)
 		{
-			Blob blob = GetBlob (c, file, repo);
+			var blob = GetBlob (c, file, repo);
 			if (blob == null)
 				return string.Empty;
 
@@ -1928,6 +2119,31 @@ namespace MonoDevelop.VersionControl.Git
 
 		public async Task PushAsync (ProgressMonitor monitor, string remote, string remoteBranch)
 		{
+			try {
+				bool success = true;
+
+				await RunOperationAsync ((token) => {
+					var options = new Microsoft.TeamFoundation.GitApi.PushOptions ();
+					options.ProgressCallback = new ProgressMonitorOperationBinder (monitor);
+					using (var pipe = new GitAskPassPipe (Url)) {
+						pipe.StartPipe ();
+						GitApiRootRepository.Push (GitApiRootRepository.ReadHead ().AsBranch (),
+							new Microsoft.TeamFoundation.GitApi.RemoteName (remote),
+							new Microsoft.TeamFoundation.GitApi.BranchName ("refs/heads/" + remoteBranch),
+							options);
+					}
+				}, monitor.CancellationToken).ConfigureAwait (false);
+
+				if (!success)
+					return;
+				monitor.ReportSuccess (GettextCatalog.GetString ("Push operation successfully completed."));
+			} catch (Exception e) {
+				await PushAsync_LibGitFallback (monitor, remote, remoteBranch);
+			}
+		}
+
+		async Task PushAsync_LibGitFallback (ProgressMonitor monitor, string remote, string remoteBranch)
+		{
 			bool success = true;
 
 			await RunOperationAsync ((token) => {
@@ -1939,7 +2155,7 @@ namespace MonoDevelop.VersionControl.Git
 
 			var innerTask = await RunOperationAsync ((token) => {
 				return RetryUntilSuccessAsync (monitor, credType => {
-					RootRepository.Network.Push (RootRepository.Network.Remotes [remote], "refs/heads/" + remoteBranch, new PushOptions {
+					RootRepository.Network.Push (RootRepository.Network.Remotes [remote], "refs/heads/" + remoteBranch, new LibGit2Sharp.PushOptions {
 						OnPushStatusError = pushStatusErrors => success = false,
 						CredentialsProvider = (url, userFromUrl, types) => GitCredentials.TryGet (url, userFromUrl, types, credType)
 					});
@@ -1954,7 +2170,6 @@ namespace MonoDevelop.VersionControl.Git
 
 			monitor.ReportSuccess (GettextCatalog.GetString ("Push operation successfully completed."));
 		}
-
 		public Task CreateBranchFromCommitAsync (string name, Commit id)
 		{
 			return RunBlockingOperationAsync ((token) => RootRepository.CreateBranch (name, id));
@@ -1962,11 +2177,12 @@ namespace MonoDevelop.VersionControl.Git
 
 		public Task CreateBranchAsync (string name, string trackSource, string targetRef)
 		{
-			return RunBlockingOperationAsync ((token) => CreateBranch (name, trackSource, targetRef, RootRepository));
+			return RunBlockingOperationAsync ((token) => CreateBranch (name, trackSource, targetRef));
 		}
 
-		void CreateBranch (string name, string trackSource, string targetRef, LibGit2Sharp.Repository repo)
+		void CreateBranch (string name, string trackSource, string targetRef)
 		{
+			var repo = RootRepository;
 			Commit c = null;
 			if (!string.IsNullOrEmpty (trackSource))
 				c = repo.Lookup<Commit> (trackSource);
@@ -1974,6 +2190,20 @@ namespace MonoDevelop.VersionControl.Git
 			repo.Branches.Update (
 				repo.CreateBranch (name, c ?? repo.Head.Tip),
 				bu => bu.TrackedBranch = targetRef);
+
+			/*
+			IBranch upstream = null;
+			var refs = GitApiRootRepository.ReadReferences (ReferenceOptions.Default);
+
+			if (!string.IsNullOrEmpty (trackSource)) {
+				upstream = refs.EnumerateBranches ().FirstOrDefault (b => b.LocalName == trackSource);
+			}
+			if (upstream == null)
+				upstream = GitApiRootRepository.ReadHead ().AsBranch ();
+			GitApiRootRepository.CreateBranch (name, upstream);
+
+			if (!string.IsNullOrEmpty (targetRef))
+				GitApiRootRepository.BranchSetUpstream (upstream, new BranchName (targetRef));*/
 		}
 
 		public Task SetBranchTrackRefAsync (string name, string trackSource, string trackRef)
@@ -1983,7 +2213,7 @@ namespace MonoDevelop.VersionControl.Git
 				if (branch != null) {
 					RootRepository.Branches.Update (branch, bu => bu.TrackedBranch = trackRef);
 				} else
-					CreateBranch (name, trackSource, trackRef, RootRepository);
+					CreateBranch (name, trackSource, trackRef);
 			});
 		}
 
@@ -2003,10 +2233,10 @@ namespace MonoDevelop.VersionControl.Git
 			return RunOperationAsync ((token) => RootRepository.Network.Remotes.Select (r => r.Name).ToList (), cancellationToken: cancellationToken);
 		}
 
-		public Task<IEnumerable<Remote>> GetRemotesAsync (CancellationToken cancellationToken = default)
+		public Task<IEnumerable<LibGit2Sharp.Remote>> GetRemotesAsync (CancellationToken cancellationToken = default)
 		{
 			// TODO: access to Remote props is not under our control
-			return RunOperationAsync ((token) => RootRepository.Network.Remotes.Cast<Remote> (), cancellationToken:cancellationToken);
+			return RunOperationAsync ((token) => RootRepository.Network.Remotes.Cast<LibGit2Sharp.Remote> (), cancellationToken: cancellationToken);
 		}
 
 		public Task<bool> IsBranchMergedAsync (string branchName)
@@ -2058,8 +2288,13 @@ namespace MonoDevelop.VersionControl.Git
 
 		public Task<List<string>> GetLocalBranchNamesAsync (CancellationToken cancellationToken = default)
 		{
-			// TODO: access to Remote props is not under our control
-			return RunOperationAsync ((token) => RootRepository.Branches.Where (b => !b.IsRemote).Select (b => b.FriendlyName).ToList (), cancellationToken: cancellationToken);
+			var options = ReferenceOptions.Default;
+			var references = GitApiRootRepository.ReadReferences (options);
+
+			var result = new List<string> ();
+			foreach (var branch in references.LocalBranches)
+				result.Add (branch.FriendlyName);
+			return Task.FromResult (result);
 		}
 
 		public Task<List<Branch>> GetBranchesAsync (CancellationToken cancellationToken = default)
@@ -2068,9 +2303,13 @@ namespace MonoDevelop.VersionControl.Git
 			return RunOperationAsync ((token) => RootRepository.Branches.Where (b => !b.IsRemote).ToList (), cancellationToken: cancellationToken);
 		}
 
-		public Task<List<string>> GetTagsAsync (CancellationToken cancellationToken = default)
+		public async Task<List<string>> GetTagsAsync (CancellationToken cancellationToken = default)
 		{
-			return RunOperationAsync ((token) => RootRepository.Tags.Select (t => t.FriendlyName).ToList (), cancellationToken: cancellationToken);
+			var result = new List<string> ();
+			foreach (var tag in await GitApiRootRepository.GetAllTagsAsync ()) {
+				result.Add (tag.FriendlyName);
+			}
+			return result;
 		}
 
 		public Task AddTagAsync (string name, Revision rev, string message, CancellationToken cancellationToken = default)
@@ -2078,20 +2317,23 @@ namespace MonoDevelop.VersionControl.Git
 			Signature sig = GetSignature ();
 			if (sig == null)
 				return Task.CompletedTask;
-
 			var gitRev = (GitRevision)rev;
-			return RunBlockingOperationAsync ((token) => RootRepository.Tags.Add (name, gitRev.GetCommit (RootRepository), sig, message), cancellationToken: cancellationToken);
+			var options = TagOptions.Default;
+			var revision = new Microsoft.TeamFoundation.GitApi.Revision (gitRev.ToString ());
+			GitApiRootRepository.CreateTag (revision, name, message, options);
+			return Task.CompletedTask;
 		}
 
 		public Task RemoveTagAsync (string name, CancellationToken cancellationToken = default)
 		{
-			return RunBlockingOperationAsync ((token) => RootRepository.Tags.Remove (name), cancellationToken: cancellationToken);
+			GitApiRootRepository.DeleteTag (new TagName (name));
+			return Task.CompletedTask;
 		}
 
 		public Task PushTagAsync (string name, CancellationToken cancellationToken = default)
 		{
 			return RunOperationAsync ((token) => {
-				return RetryUntilSuccessAsync (null, async credType => RootRepository.Network.Push (RootRepository.Network.Remotes [await GetCurrentRemoteAsync ().ConfigureAwait (false)], "refs/tags/" + name + ":refs/tags/" + name, new PushOptions {
+				return RetryUntilSuccessAsync (null, async credType => RootRepository.Network.Push (RootRepository.Network.Remotes [await GetCurrentRemoteAsync ().ConfigureAwait (false)], "refs/tags/" + name + ":refs/tags/" + name, new LibGit2Sharp.PushOptions {
 					CredentialsProvider = (url, userFromUrl, types) => GitCredentials.TryGet (url, userFromUrl, types, credType),
 				}));
 			}, cancellationToken).Unwrap ();
@@ -2099,20 +2341,31 @@ namespace MonoDevelop.VersionControl.Git
 
 		public Task<List<string>> GetRemoteBranchesAsync (string remoteName, CancellationToken cancellationToken = default)
 		{
-			return RunOperationAsync ((token) => RootRepository.Branches
-				.Where (b => b.IsRemote && b.RemoteName == remoteName)
-				.Select (b => b.FriendlyName.Substring (b.FriendlyName.IndexOf ('/') + 1)).ToList (), cancellationToken: cancellationToken);
+			var options = ReferenceOptions.Default;
+			var references = GitApiRootRepository.ReadReferences (options);
+
+			var result = new List<string> ();
+			foreach (var b in references.RemoteBranches) {
+				if (b.RemoteName == remoteName)
+					result.Add (b.FriendlyName.Substring (b.FriendlyName.IndexOf ('/') + 1));
+			}
+			return Task.FromResult (result);
 		}
 
 		public Task<List<string>> GetRemoteBranchFullNamesAsync (CancellationToken cancellationToken = default)
 		{
-			return RunOperationAsync ((token) => RootRepository.Branches
-				.Where (b => b.IsRemote).Select (b => b.FriendlyName).OrderBy (n => n).ToList (), cancellationToken: cancellationToken);
+			var options = ReferenceOptions.Default;
+			var references = GitApiRootRepository.ReadReferences (options);
+
+			var result = new List<string> ();
+			foreach (var branch in references.RemoteBranches)
+				result.Add (branch.FriendlyName);
+			return Task.FromResult (result);
 		}
 
 		internal string GetCurrentBranch ()
 		{
-			return RunOperation (() => RootRepository.Head.FriendlyName);
+			return CachedCurrentBranch = GitApiRootRepository.ReadHead ().FriendlyName;
 		}
 
 		internal string CachedCurrentBranch { get; private set; } = DefaultNoBranchName; //"(no branch)" is the default libgit string
@@ -2121,13 +2374,14 @@ namespace MonoDevelop.VersionControl.Git
 
 		public Task<string> GetCurrentBranchAsync (CancellationToken cancellationToken = default)
 		{
-			return RunOperationAsync ((token) => CachedCurrentBranch = RootRepository.Head.FriendlyName, cancellationToken: cancellationToken);
+			CachedCurrentBranch = GitApiRootRepository.ReadHead ().FriendlyName;
+			return Task.FromResult (CachedCurrentBranch);
 		}
 
 		async Task SwitchBranchInternalAsync (ProgressMonitor monitor, string branch)
 		{
 			int progress = 0;
-			await RunOperationAsync ((token) => LibGit2Sharp.Commands.Checkout (RootRepository, branch, new CheckoutOptions {
+			await RunOperationAsync ((token) => LibGit2Sharp.Commands.Checkout (RootRepository, branch, new LibGit2Sharp.CheckoutOptions {
 				OnCheckoutProgress = (path, completedSteps, totalSteps) => OnCheckoutProgress (completedSteps, totalSteps, monitor, ref progress),
 				OnCheckoutNotify = (string path, CheckoutNotifyFlags flags) => RefreshFile (path, flags),
 				CheckoutNotifyFlags = refreshFlags,
@@ -2162,7 +2416,7 @@ namespace MonoDevelop.VersionControl.Git
 				monitor.BeginTask (GettextCatalog.GetString ("Switching to branch {0}", branch), 2);
 				await SwitchBranchInternalAsync (monitor, branch).ConfigureAwait (false);
 				return true;
-			} catch (CheckoutConflictException ex) {
+			} catch (LibGit2Sharp.CheckoutConflictException ex) {
 				// retry with stashing
 				monitor.EndTask ();
 				if (!GitService.StashUnstashWhenSwitchingBranches) {
@@ -2222,7 +2476,7 @@ namespace MonoDevelop.VersionControl.Git
 			string sn = GetStashName (branchName);
 			int count = stashes.Count ();
 			for (int i = 0; i < count; ++i) {
-				if (stashes[i].Message.IndexOf (sn, StringComparison.InvariantCulture) != -1)
+				if (stashes [i].Message.IndexOf (sn, StringComparison.InvariantCulture) != -1)
 					return i;
 			}
 			return -1;
@@ -2233,8 +2487,8 @@ namespace MonoDevelop.VersionControl.Git
 			ChangeSet cset = CreateChangeSet (RootPath);
 
 			RunOperation (() => {
-				Commit reference = RootRepository.Branches [remote + "/" + branch].Tip;
-				Commit compared = RootRepository.Head.Tip;
+				var reference = RootRepository.Branches [remote + "/" + branch].Tip;
+				var compared = RootRepository.Head.Tip;
 
 				foreach (var change in GitUtil.CompareCommits (RootRepository, reference, compared)) {
 					VersionStatus status;
@@ -2253,18 +2507,18 @@ namespace MonoDevelop.VersionControl.Git
 						status = VersionStatus.Modified;
 						break;
 					}
-					var vi = new VersionInfo (RootRepository.FromGitPath (change.Path), "", false, status | VersionStatus.Versioned, null, VersionStatus.Versioned, null);
+					var vi = new VersionInfo (RootRepository.FromGitPath (change.Path), "", false, status, null, null);
 					cset.AddFile (vi);
 				}
 			});
 			return cset;
 		}
 
-		public DiffInfo[] GetPushDiff (string remote, string branch)
+		public DiffInfo [] GetPushDiff (string remote, string branch)
 		{
 			return RunOperation (() => {
-				Commit reference = RootRepository.Branches [remote + "/" + branch].Tip;
-				Commit compared = RootRepository.Head.Tip;
+				var reference = RootRepository.Branches [remote + "/" + branch].Tip;
+				var compared = RootRepository.Head.Tip;
 
 				var diffs = new List<DiffInfo> ();
 				var patch = RootRepository.Diff.Compare<Patch> (reference.Tree, compared.Tree);
@@ -2301,7 +2555,7 @@ namespace MonoDevelop.VersionControl.Git
 
 			vi = await GetVersionInfoAsync (localDestPath, VersionInfoQueryFlags.IgnoreCache, monitor.CancellationToken).ConfigureAwait (false);
 			await RunBlockingOperationAsync ((token) => {
-				if (vi != null && ((vi.Status & (VersionStatus.ScheduledDelete | VersionStatus.ScheduledReplace)) != VersionStatus.Unversioned))
+				if (vi != null && (vi.Status.IsScheduledDelete || vi.Status.IsScheduledReplace))
 					LibGit2Sharp.Commands.Unstage (dstRepo, localDestPath);
 
 				if (srcRepo == dstRepo) {
@@ -2317,7 +2571,7 @@ namespace MonoDevelop.VersionControl.Git
 
 		protected override async Task OnMoveDirectoryAsync (FilePath localSrcPath, FilePath localDestPath, bool force, ProgressMonitor monitor)
 		{
-			VersionInfo[] versionedFiles = await GetDirectoryVersionInfoAsync (localSrcPath, false, true, monitor.CancellationToken).ConfigureAwait (false);
+			VersionInfo [] versionedFiles = await GetDirectoryVersionInfoAsync (localSrcPath, false, true, monitor.CancellationToken).ConfigureAwait (false);
 			await base.OnMoveDirectoryAsync (localSrcPath, localDestPath, force, monitor).ConfigureAwait (false);
 			monitor.BeginTask (GettextCatalog.GetString ("Moving files"), versionedFiles.Length);
 			foreach (VersionInfo vif in versionedFiles) {
@@ -2335,42 +2589,58 @@ namespace MonoDevelop.VersionControl.Git
 		public override Task<Annotation []> GetAnnotationsAsync (FilePath repositoryPath, Revision since, CancellationToken cancellationToken)
 		{
 			return RunOperationAsync (repositoryPath, async (repository, token) => {
-				Commit hc = GetHeadCommit (repository);
-				Commit sinceCommit = since != null ? ((GitRevision)since).GetCommit (repository) : null;
+				var hc = GetHeadCommit (repository);
+				var sinceCommit = since != null ? ((GitRevision)since).GetCommit (repository) : null;
 				if (hc == null)
 					return Array.Empty<Annotation> ();
-
 				var list = new List<Annotation> ();
-
 				var gitPath = repository.ToGitPath (repositoryPath);
 				var status = repository.RetrieveStatus (gitPath);
-				if (status != FileStatus.NewInIndex && status != FileStatus.NewInWorkdir) {
-					lock (blameLock) {
-						foreach (var hunk in repository.Blame (gitPath, new BlameOptions { FindExactRenames = true, StartingAt = sinceCommit })) {
-							var commit = hunk.FinalCommit;
-							var author = hunk.FinalSignature;
-							var working = new Annotation (new GitRevision (this, gitPath, commit), author.Name, author.When.LocalDateTime, String.Format ("<{0}>", author.Email));
-							for (int i = 0; i < hunk.LineCount; ++i)
-								list.Add (working);
-						}
+				if (status == FileStatus.NewInIndex || status == FileStatus.NewInWorkdir)
+					return Array.Empty<Annotation> ();
+
+				string baseText;
+				var options = new Microsoft.TeamFoundation.GitApi.BlameOptions ();
+				options.IgnoreWhitespaces = false;
+				options.Path = gitPath;
+				var blame = GitApiRootRepository.GetBlame (options);
+				baseText = blame.Text;
+				foreach (var ann in blame.Annotations) {
+					if (ann.Revision == "0000000000000000000000000000000000000000") {
+						list.Add (new Annotation (null, GettextCatalog.GetString ("<uncommitted>"), DateTime.MinValue, null, GettextCatalog.GetString ("working copy")));
+						continue;
 					}
+					list.Add (new Annotation (
+						new GitRevision (this, gitPath, ann.Revision, ann.Summary),
+						ann.Author,
+						ann.AuthorTime,
+						ann.AuthorMail,
+						ann.Revision
+					));
 				}
 
 				if (sinceCommit == null) {
-					var baseText = await GetBaseTextAsync (repositoryPath, token).ConfigureAwait (false);
 					await Runtime.RunInMainThread (delegate {
 						var baseDocument = Mono.TextEditor.TextDocument.CreateImmutableDocument (baseText);
-						var workingDocument = Mono.TextEditor.TextDocument.CreateImmutableDocument (TextFileUtility.GetText (repositoryPath));
+						var doc = IdeApp.Workbench?.GetDocument (repositoryPath);
+						if (doc == null) // if document is not open the blame is already correct.
+							return;
+						var text = doc?.TextBuffer.CurrentSnapshot.GetText ();
+						var workingDocument = Mono.TextEditor.TextDocument.CreateImmutableDocument (text);
 						var nextRev = new Annotation (null, GettextCatalog.GetString ("<uncommitted>"), DateTime.MinValue, null, GettextCatalog.GetString ("working copy"));
 						int offsetStart = 0;
 						foreach (var hunk in baseDocument.Diff (workingDocument, includeEol: false)) {
-							list.RemoveRange (offsetStart + hunk.RemoveStart - 1, hunk.Removed);
+							var idx = offsetStart + hunk.RemoveStart - 1;
+							if (idx < list.Count) {
+								list.RemoveRange (idx, hunk.Removed);
+							}
 							offsetStart -= hunk.Removed;
 							for (int i = 0; i < hunk.Inserted; ++i) {
-								if (hunk.InsertStart + i >= list.Count)
+								idx = hunk.InsertStart - 1;
+								if (idx >= list.Count)
 									list.Add (nextRev);
 								else
-									list.Insert (offsetStart + hunk.InsertStart - 1, nextRev);
+									list.Insert (idx, nextRev);
 								offsetStart++;
 							}
 						}
@@ -2381,7 +2651,7 @@ namespace MonoDevelop.VersionControl.Git
 			}, cancellationToken).Unwrap ();
 		}
 
-		protected override async Task OnIgnoreAsync (FilePath[] localPath, CancellationToken cancellationToken)
+		protected override async Task OnIgnoreAsync (FilePath [] localPath, CancellationToken cancellationToken)
 		{
 			var ignored = new List<FilePath> ();
 			string gitignore = RootPath + Path.DirectorySeparatorChar + ".gitignore";
@@ -2404,7 +2674,7 @@ namespace MonoDevelop.VersionControl.Git
 			}, cancellationToken).ConfigureAwait (false);
 		}
 
-		protected override async Task OnUnignoreAsync (FilePath[] localPath, CancellationToken cancellationToken)
+		protected override async Task OnUnignoreAsync (FilePath [] localPath, CancellationToken cancellationToken)
 		{
 			var ignored = new List<string> ();
 			string gitignore = RootPath + Path.DirectorySeparatorChar + ".gitignore";
@@ -2426,63 +2696,14 @@ namespace MonoDevelop.VersionControl.Git
 				LibGit2Sharp.Commands.Stage (RootRepository, ".gitignore");
 			}, cancellationToken).ConfigureAwait (false);
 		}
-	}
 
-	public class GitRevision: Revision
-	{
-		readonly string rev;
-
-		internal FilePath FileForChanges { get; set; }
-
-		public string GitRepository {
-			get; private set;
-		}
-
-		public GitRevision (Repository repo, string gitRepository, Commit commit) : base(repo, commit?.Author.When.DateTime ?? DateTime.Now, commit?.Author.Name, commit?.Message)
+		public override bool IsFileVisibleInStatusView (VersionInfo vi)
 		{
-			GitRepository = gitRepository;
-			rev = commit != null ? commit.Id.Sha : "";
-		}
-
-		public GitRevision (Repository repo, string gitRepository, Commit commit, DateTime time, string author, string message) : base(repo, time, author, message)
-		{
-			GitRepository = gitRepository;
-			rev = commit != null ? commit.Id.Sha : "";
-		}
-
-		public override string ToString ()
-		{
-			return rev;
-		}
-
-		string shortName;
-		public override string ShortName {
-			get {
-				if (shortName != null)
-					return shortName;
-				return shortName = rev.Length > 10 ? rev.Substring (0, 10) : rev;
-			}
-		}
-
-		internal Commit GetCommit (LibGit2Sharp.Repository repository)
-		{
-			if (repository.Info.WorkingDirectory != GitRepository)
-				throw new ArgumentException ("Commit does not belog to the repository", nameof (repository));
-			return repository.Lookup<Commit> (rev);
-		}
-
-		public override Task<Revision> GetPreviousAsync (CancellationToken cancellationToken)
-		{
-			var repo = (GitRepository)Repository;
-			return repo.RunOperationAsync (GitRepository, (repository, token) => GetPrevious (repository), cancellationToken: cancellationToken);
-		}
-
-		internal Revision GetPrevious (LibGit2Sharp.Repository repository)
-		{
-			if (repository.Info.WorkingDirectory != GitRepository)
-				throw new ArgumentException ("Commit does not belog to the repository", nameof (repository));
-			var id = repository.Lookup<Commit> (rev)?.Parents.FirstOrDefault ();
-			return id == null ? null : new GitRevision (Repository, GitRepository, id);
+			if (vi == null || vi.Status.IsIgnored)
+				return false;
+			if (vi.Status.IsModified || !vi.Status.IsTracked)
+				return true;
+			return false;
 		}
 	}
 

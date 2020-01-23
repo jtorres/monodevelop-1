@@ -24,24 +24,6 @@ namespace MonoDevelop.VersionControl
 {
 	public class VersionControlService
 	{
-		static Xwt.Drawing.Image overlay_modified;
-		static Xwt.Drawing.Image overlay_removed;
-		static Xwt.Drawing.Image overlay_renamed;
-		static Xwt.Drawing.Image overlay_conflicted;
-		static Xwt.Drawing.Image overlay_added;
-		internal static Xwt.Drawing.Image overlay_controled;
-		static Xwt.Drawing.Image overlay_unversioned;
-		static Xwt.Drawing.Image overlay_protected;
-		static Xwt.Drawing.Image overlay_locked;
-		static Xwt.Drawing.Image overlay_unlocked;
-        static Xwt.Drawing.Image overlay_ignored;
-
-		static Xwt.Drawing.Image icon_modified;
-		static Xwt.Drawing.Image icon_removed;
-		static Xwt.Drawing.Image icon_conflicted;
-		static Xwt.Drawing.Image icon_added;
-		internal static Xwt.Drawing.Image icon_controled;
-		
 		static Hashtable comments;
 		static object commentsLock = new object ();
 		static DateTime nextSave = DateTime.MinValue;
@@ -58,28 +40,6 @@ namespace MonoDevelop.VersionControl
 		static VersionControlService ()
 		{
 			IdeApp.Initialized += delegate {
-				try {
-					overlay_modified = Xwt.Drawing.Image.FromResource("modified-overlay-16.png");
-					overlay_removed = Xwt.Drawing.Image.FromResource("removed-overlay-16.png");
-					overlay_renamed = Xwt.Drawing.Image.FromResource("renamed-overlay-16.png");
-					overlay_conflicted = Xwt.Drawing.Image.FromResource("conflict-overlay-16.png");
-					overlay_added = Xwt.Drawing.Image.FromResource("added-overlay-16.png");
-					overlay_controled = Xwt.Drawing.Image.FromResource("versioned-overlay-16.png");
-					overlay_unversioned = Xwt.Drawing.Image.FromResource("unversioned-overlay-16.png");
-					overlay_protected = Xwt.Drawing.Image.FromResource("lock-required-overlay-16.png");
-					overlay_unlocked = Xwt.Drawing.Image.FromResource("unlocked-overlay-16.png");
-					overlay_locked = Xwt.Drawing.Image.FromResource("locked-overlay-16.png");
-					overlay_ignored = Xwt.Drawing.Image.FromResource("ignored-overlay-16.png");
-
-					icon_modified = ImageService.GetIcon ("vc-file-modified", Gtk.IconSize.Menu);
-					icon_removed = ImageService.GetIcon ("vc-file-removed", Gtk.IconSize.Menu);
-					icon_conflicted = ImageService.GetIcon ("vc-file-conflicted", Gtk.IconSize.Menu);
-					icon_added = ImageService.GetIcon ("vc-file-added", Gtk.IconSize.Menu);
-					icon_controled = Xwt.Drawing.Image.FromResource("versioned-overlay-16.png");
-				} catch (Exception e) {
-					LoggingService.LogError ("Error while loading icons.", e);
-				}
-
 				IdeApp.Workspace.SolutionLoaded += (sender, e) => SessionSolutionDisabled |= IsSolutionDisabled (e.Solution);
 
 				IdeApp.Workspace.FileAddedToProject += OnFileAdded;
@@ -138,80 +98,6 @@ namespace MonoDevelop.VersionControl
 			}
 		}
 		
-		public static Xwt.Drawing.Image LoadOverlayIconForStatus(VersionStatus status)
-		{
-			if ((status & VersionStatus.Ignored) != 0)
-				return overlay_ignored;
-
-			if ((status & VersionStatus.Versioned) == 0)
-				return overlay_unversioned;
-			
-			switch (status & VersionStatus.LocalChangesMask) {
-				case VersionStatus.Modified:
-				case VersionStatus.ScheduledIgnore:
-					return overlay_modified;
-				case VersionStatus.ScheduledReplace:
-					return overlay_renamed;
-				case VersionStatus.Conflicted:
-					return overlay_conflicted;
-				case VersionStatus.ScheduledAdd:
-					return overlay_added;
-				case VersionStatus.Missing:
-				case VersionStatus.ScheduledDelete:
-					return overlay_removed;
-			}
-			
-			if ((status & VersionStatus.LockOwned) != 0)
-				return overlay_unlocked;
-			
-			if ((status & VersionStatus.Locked) != 0)
-				return overlay_locked;
-			
-			if ((status & VersionStatus.LockRequired) != 0)
-				return overlay_protected;
-				
-			return null;
-		}
-		
-		public static Xwt.Drawing.Image LoadIconForStatus (VersionStatus status)
-		{
-			switch (status & VersionStatus.LocalChangesMask) {
-				case VersionStatus.Modified:
-				case VersionStatus.ScheduledReplace:
-					return icon_modified;
-				case VersionStatus.Conflicted:
-					return icon_conflicted;
-				case VersionStatus.ScheduledAdd:
-					return icon_added;
-				case VersionStatus.Missing:
-				case VersionStatus.ScheduledDelete:
-					return icon_removed;
-			}
-			return null;
-		}
-
-		public static string GetStatusLabel (VersionStatus status)
-		{
-			if ((status & VersionStatus.Versioned) == 0)
-				return GettextCatalog.GetString ("Unversioned");
-			
-			switch (status & VersionStatus.LocalChangesMask) {
-				case VersionStatus.Modified:
-					return GettextCatalog.GetString ("Modified");
-				case VersionStatus.ScheduledReplace:
-					return GettextCatalog.GetString ("Renamed");
-				case VersionStatus.Conflicted:
-					return GettextCatalog.GetString ("Conflict");
-				case VersionStatus.ScheduledAdd:
-					return GettextCatalog.GetString ("Add");
-				case VersionStatus.ScheduledDelete:
-					return GettextCatalog.GetString ("Delete");
-				case VersionStatus.Missing:
-					return GettextCatalog.GetString ("Missing");
-			}
-			return String.Empty;
-		}
-
 		internal static readonly object referenceCacheLock = new object ();
 		internal static Dictionary<Repository, InternalRepositoryReference> referenceCache = new Dictionary<Repository, InternalRepositoryReference> ();
 		public static Repository GetRepository (WorkspaceObject entry)
@@ -522,7 +408,7 @@ namespace MonoDevelop.VersionControl
 							monitor = GetStatusMonitor ();
 
 	  					var gotInfo = repo.TryGetVersionInfo (file, out var versionInfo);
-						if (gotInfo == false || (versionInfo.Status & VersionStatus.Ignored) == 0 && versionInfo.CanAdd)
+						if (gotInfo == false || !versionInfo.Status.IsIgnored && versionInfo.CanAdd)
 							await repo.AddAsync (file, false, monitor);
 					}
 					vargs.AddRange (repoFiles.Select (i => new FileUpdateEventInfo (repo, i.ProjectFile.FilePath, i.ProjectFile.Subtype == Subtype.Directory)));

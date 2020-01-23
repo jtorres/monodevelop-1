@@ -5,20 +5,20 @@ using System.Threading.Tasks;
 
 namespace MonoDevelop.VersionControl
 {
+
 	public class VersionInfo
 	{
 		bool opsLoaded;
 		VersionControlOperation operations;
 		Repository ownerRepository;
 
-		public VersionInfo (FilePath localPath, string repositoryPath, bool isDirectory, VersionStatus status, Revision revision, VersionStatus remoteStatus, Revision remoteRevision)
+		public VersionInfo (FilePath localPath, string repositoryPath, bool isDirectory, VersionStatus status, Revision revision, Revision remoteRevision)
 		{
 			this.LocalPath = localPath;
 			this.RepositoryPath = repositoryPath;
 			this.IsDirectory = isDirectory;
 			this.Status = status;
 			this.Revision = revision;
-			this.RemoteStatus = remoteStatus;
 			this.RemoteRevision = remoteRevision;
 		}
 
@@ -29,9 +29,8 @@ namespace MonoDevelop.VersionControl
 			return LocalPath == obj.LocalPath &&
 				RepositoryPath == obj.RepositoryPath &&
 				IsDirectory == obj.IsDirectory &&
-				Status == obj.Status &&
+				Status.Equals (obj.Status) &&
 				Revision == obj.Revision &&
-				RemoteStatus == obj.RemoteStatus &&
 				RemoteRevision == obj.RemoteRevision &&
 				AllowedOperations == obj.AllowedOperations;
 		}
@@ -45,7 +44,7 @@ namespace MonoDevelop.VersionControl
 		
 		public static VersionInfo CreateUnversioned (FilePath path, bool isDirectory)
 		{
-			return new VersionInfo (path, "", isDirectory, VersionStatus.Unversioned, null, VersionStatus.Unversioned, null);
+			return new VersionInfo (path, "", isDirectory, VersionStatus.Unversioned, null, null);
 		}
 
 		internal bool RequiresRefresh { get; set; }
@@ -53,25 +52,15 @@ namespace MonoDevelop.VersionControl
 		internal bool IsInitialized => ownerRepository != null;
 
 		public bool IsVersioned {
-			get { return (Status & VersionStatus.Versioned) != 0; }
+			get { return Status.IsTracked; }
 		}
 		
 		public bool HasLocalChanges {
-			get { return (Status & VersionStatus.LocalChangesMask) != 0; }
+			get { return Status.IsModified; }
 		}
 		
 		public bool HasRemoteChanges {
-			get { return (RemoteStatus & VersionStatus.LocalChangesMask) != 0; }
-		}
-		
-		public bool HasLocalChange (VersionStatus changeKind)
-		{
-			return (Status & changeKind) != 0;
-		}
-		
-		public bool HasRemoteChange (VersionStatus changeKind)
-		{
-			return (RemoteStatus & changeKind) != 0;
+			get { return Status.IsRemoteModified; }
 		}
 		
 		public FilePath LocalPath {
@@ -89,21 +78,16 @@ namespace MonoDevelop.VersionControl
 			private set;
 		}
  		
-		public VersionStatus Status {
-			get;
-			private set;
-		}
-		
 		public Revision Revision {
 			get;
 			private set;
 		}
 
-		public VersionStatus RemoteStatus {
+		public VersionStatus Status {
 			get;
-			internal set;
+			private set;
 		}
-		
+
 		public Revision RemoteRevision {
 			get;
 			internal set;
@@ -137,5 +121,10 @@ namespace MonoDevelop.VersionControl
 		public bool CanUnlock { get { return SupportsOperation (VersionControlOperation.Unlock); } }
 		
 		public bool CanUpdate { get { return SupportsOperation (VersionControlOperation.Update); } }
+
+		public override string ToString ()
+		{
+			return $"[VersionInfo: LocalPath={LocalPath}]";
+		}
 	}
 }

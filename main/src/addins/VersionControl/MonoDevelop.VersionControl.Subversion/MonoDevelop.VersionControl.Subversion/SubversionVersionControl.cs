@@ -88,7 +88,7 @@ namespace MonoDevelop.VersionControl.Subversion
 
 		internal protected virtual VersionControlOperation GetSupportedOperations (Repository repo, VersionInfo vinfo, VersionControlOperation defaultValue)
 		{
-			if (vinfo.IsVersioned && File.Exists (vinfo.LocalPath) && !Directory.Exists (vinfo.LocalPath) && vinfo.HasLocalChange (VersionStatus.ScheduledDelete))
+			if (vinfo.IsVersioned && File.Exists (vinfo.LocalPath) && !Directory.Exists (vinfo.LocalPath) && vinfo.Status.IsScheduledDelete)
 				defaultValue |= VersionControlOperation.Add;
 			return defaultValue;
 		}

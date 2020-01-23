@@ -41,7 +41,7 @@ namespace MonoDevelop.VersionControl
 			if (test) {
 				foreach (var item in list) {
 					var info = await item.GetVersionInfoAsync (cancellationToken);
-					if ((info.Status & VersionStatus.Conflicted) != VersionStatus.Conflicted)
+					if (!info.Status.HasConflicts)
 						return false;
 				}
 				return true;
@@ -49,7 +49,7 @@ namespace MonoDevelop.VersionControl
 
 			foreach (var item in list) {
 				var info = await item.GetVersionInfoAsync (cancellationToken);
-				if ((info.Status & VersionStatus.Conflicted) != VersionStatus.Conflicted)
+				if (!info.Status.HasConflicts)
 					continue;
 				var doc = await IdeApp.Workbench.OpenDocument (item.Path, item.ContainerProject, true);
 				doc?.GetContent<VersionControlDocumentController> ()?.ShowMergeView ();

@@ -178,8 +178,8 @@ namespace MonoDevelop.VersionControl.Dialogs
 
 		TreeIter AppendFileInfo (VersionInfo info)
 		{
-			Xwt.Drawing.Image statusicon = VersionControlService.LoadIconForStatus (info.Status);
-			string lstatus = VersionControlService.GetStatusLabel (info.Status);
+			Xwt.Drawing.Image statusicon = info.Status.Icon;
+			string lstatus = info.Status.Label;
 			string localpath;
 
 			if (info.IsDirectory)
@@ -245,8 +245,8 @@ namespace MonoDevelop.VersionControl.Dialogs
 			store.Clear ();
 
 			foreach (ChangeSetItem info in items) {
-				Xwt.Drawing.Image statusicon = VersionControlService.LoadIconForStatus (info.Status);
-				string lstatus = VersionControlService.GetStatusLabel (info.Status);
+				Xwt.Drawing.Image statusicon = info.Status.Icon;
+				string lstatus = info.Status.Label;
 				string localpath;
 
 				if (info.IsDirectory)

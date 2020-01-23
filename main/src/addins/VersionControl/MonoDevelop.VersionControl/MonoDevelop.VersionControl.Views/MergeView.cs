@@ -65,7 +65,7 @@ namespace MonoDevelop.VersionControl.Views
 			Task.Run (async () => {
 				var item = info?.Item;
 				if (item == null) return false;
-				var isConflicted = (await item.GetVersionInfoAsync ())?.Status.HasFlag (VersionStatus.Conflicted) ?? false;
+				var isConflicted = (await item.GetVersionInfoAsync ())?.Status.HasConflicts ?? false;
 				return isConflicted;
 			}).ContinueWith (t => {
 				if (t.Result) {
