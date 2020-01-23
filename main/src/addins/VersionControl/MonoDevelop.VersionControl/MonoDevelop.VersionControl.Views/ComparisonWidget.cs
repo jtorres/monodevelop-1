@@ -150,6 +150,8 @@ namespace MonoDevelop.VersionControl.Views
 
 		void Change (MonoTextEditor textEditor, int n)
 		{
+			if (n < 0 || info == null)
+				return;
 			if (n == 0) {
 				SetLocal (textEditor.GetTextEditorData ());
 				return;
@@ -181,7 +183,6 @@ namespace MonoDevelop.VersionControl.Views
 				}, Runtime.MainTaskScheduler);
 				return;
 			}
-
 			var rev = info.History [n - 2];
 			SetRevision (textEditor, rev);
 		}

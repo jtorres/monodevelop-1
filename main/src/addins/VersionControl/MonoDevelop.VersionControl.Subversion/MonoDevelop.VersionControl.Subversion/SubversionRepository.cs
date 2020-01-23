@@ -259,7 +259,7 @@ namespace MonoDevelop.VersionControl.Subversion
 					if (RootPath.IsNull)
 						throw new UserException (GettextCatalog.GetString ("Project publishing failed. There is a stale .svn folder in the path '{0}'", path.ParentDirectory));
 					VersionInfo srcInfo = await GetVersionInfoAsync (path, VersionInfoQueryFlags.IgnoreCache).ConfigureAwait (false);
-					if (srcInfo.HasLocalChange (VersionStatus.ScheduledDelete)) {
+					if (srcInfo.Status.IsScheduledDelete) {
 						// It is a file that was deleted. It can be restored now since it's going
 						// to be added again.
 						// First of all, make a copy of the file
@@ -346,7 +346,7 @@ namespace MonoDevelop.VersionControl.Subversion
 			}
 			
 			VersionInfo srcInfo = await GetVersionInfoAsync (localSrcPath, VersionInfoQueryFlags.IgnoreCache).ConfigureAwait (false);
-			if (srcInfo != null && srcInfo.HasLocalChange (VersionStatus.ScheduledAdd)) {
+			if (srcInfo != null && srcInfo.Status.IsScheduledAdd) {
 				// Subversion automatically detects the rename and moves the new file accordingly.
 				if (!destIsVersioned) {
 					MakeDirVersioned (Path.GetDirectoryName (localDestPath), monitor);
@@ -371,7 +371,7 @@ namespace MonoDevelop.VersionControl.Subversion
 			if (await IsVersionedAsync (localDestPath, monitor.CancellationToken).ConfigureAwait (false))
 			{
 				VersionInfo vinfo = await GetVersionInfoAsync (localDestPath, VersionInfoQueryFlags.IgnoreCache).ConfigureAwait (false);
-				if (!vinfo.HasLocalChange (VersionStatus.ScheduledDelete) && Directory.Exists (localDestPath))
+				if (!vinfo.Status.IsScheduledDelete && Directory.Exists (localDestPath))
 					throw new InvalidOperationException ("Cannot move directory. Destination directory already exist.");
 					
 				localSrcPath = localSrcPath.FullPath;
@@ -441,7 +441,7 @@ namespace MonoDevelop.VersionControl.Subversion
 					throw new InvalidOperationException ("Cannot move directory. Destination directory already exist.");
 				
 				VersionInfo srcInfo = await GetVersionInfoAsync (localSrcPath, VersionInfoQueryFlags.IgnoreCache).ConfigureAwait (false);
-				if (srcInfo != null && srcInfo.HasLocalChange (VersionStatus.ScheduledAdd)) {
+				if (srcInfo != null && srcInfo.Status.IsScheduledAdd) {
 					// If the directory is scheduled to add, cancel it, move the directory, and schedule to add it again
 					MakeDirVersioned (Path.GetDirectoryName (localDestPath), monitor);
 					await RevertAsync (localSrcPath, true, monitor).ConfigureAwait (false);
@@ -502,7 +502,7 @@ namespace MonoDevelop.VersionControl.Subversion
 				} else {
 					if (keepLocal) {
 						VersionInfo srcInfo = await GetVersionInfoAsync (path, VersionInfoQueryFlags.IgnoreCache);
-						if (srcInfo != null && srcInfo.HasLocalChange (VersionStatus.ScheduledAdd)) {
+						if (srcInfo != null && srcInfo.Status.IsScheduledAdd) {
 							// Revert the add command
 							await RevertAsync (path, false, monitor).ConfigureAwait (false);
 						}
@@ -533,7 +533,7 @@ namespace MonoDevelop.VersionControl.Subversion
 				} else {
 					if (keepLocal) {
 						foreach (var info in await GetDirectoryVersionInfoAsync (path, false, true, monitor.CancellationToken).ConfigureAwait (false)) {
-							if (info != null && info.HasLocalChange (VersionStatus.ScheduledAdd)) {
+							if (info != null && info.Status.IsScheduledAdd) {
 								// Revert the add command
 								await RevertAsync (path, false, monitor).ConfigureAwait (false);
 							}

@@ -100,7 +100,7 @@ namespace MonoDevelop.VersionControl
 				return versionInfo;
 			try {
 				if (!Repository.TryGetVersionInfo (Path, out versionInfo))
-					versionInfo = new VersionInfo (Path, "", IsDirectory, VersionStatus.Unversioned, null, VersionStatus.Unversioned, null);
+					versionInfo = new VersionInfo (Path, "", IsDirectory, VersionStatus.Unversioned, null, null);
 				return versionInfo;
 			} catch (OperationCanceledException) {
 				return null;

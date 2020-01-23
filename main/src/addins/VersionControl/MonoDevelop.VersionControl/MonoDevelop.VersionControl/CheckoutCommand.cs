@@ -54,7 +54,9 @@ namespace MonoDevelop.VersionControl
 			{
 				return new MonoDevelop.Core.ProgressMonitoring.AggregatedProgressMonitor (
 					base.CreateProgressMonitor (),
-					messageDialogProgressMonitor = new MonoDevelop.Ide.ProgressMonitoring.MessageDialogProgressMonitor (true, true, true, true)
+					messageDialogProgressMonitor = new MonoDevelop.Ide.ProgressMonitoring.MessageDialogProgressMonitor (true, true, true, true) {
+						Style = Ide.ProgressMonitoring.MessageDialogProgressStyle.ShowCurrentTaskPercentage
+					}
 				);
 			}
 

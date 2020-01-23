@@ -1,0 +1,381 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{7FBB8B40-2B59-4C11-8C51-47C09B67A2B3}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <RootNamespace>MonoDevelop.VersionControl.Git.ClientLibrary</RootNamespace>
+    <AssemblyName>MonoDevelop.VersionControl.Git.ClientLibrary</AssemblyName>
+    <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <AssemblyOriginatorKeyFile>..\..\..\..\msbuild\MonoDevelop-Public.snk</AssemblyOriginatorKeyFile>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>..\..\..\..\build\AddIns\VersionControl</OutputPath>
+    <DefineConstants>DEBUG;OSX</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <ConsolePause>false</ConsolePause>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <Optimize>true</Optimize>
+    <OutputPath>..\..\..\..\build\AddIns\VersionControl</OutputPath>
+    <DefineConstants>OSX</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <ConsolePause>false</ConsolePause>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\..\..\..\packages\Newtonsoft.Json.12.0.2\lib\net45\Newtonsoft.Json.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\NoMergeCandidatesException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DifferenceEngine.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectDatabaseBusyException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\UpdateOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Remote.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Installation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\LsDirectoryOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PullRebaseUnstagedChangesException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ReferenceOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TreeDifferenceDetail.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PushRejectedException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ReferenceName.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\InclusiveRange.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ReferenceOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\FileSystem.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectId.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeRecursiveWhitespace.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TracerLevel.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Where.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\InstallationNotFoundException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PushOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CommitRange.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\UpdatedWorktreeEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TypeComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemotingBrokers.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CherryPickException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PushErrorType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ReferenceException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PullOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Commit.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemotingConverters.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemoteRefNotFoundException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Branch.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ConfigurationException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusCopiedEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusUntrackedFiles.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ProcessException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RevertResult.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RevisionException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CheckoutException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CommitOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeStrategy.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeCommandResults.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\GitProcessCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ExclusiveRange.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\UpdatedIndexEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\HttpExtraHeader.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PushErrorException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TagName.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ParseHelper.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\OperationMessage.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TagAnnotation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DifferenceAlgorithm.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\InitializationOption.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\InvalidOptionsException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CheckoutConflict.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Environment.Variable.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RepositoryCurrentOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RenameConfidence.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\OperationProgressType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RepositoryCurrentState.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Tree.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TreeDifferenceEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CommitOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ParseException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DifferenceException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RebaseOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StashException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CommandDelegates.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ParseResult.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Command.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusRenamedEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\FetchOptionsFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DeleteBranchOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\WorkdirException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\FetchOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CheckoutIndexOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CheckoutOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CheckoutOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StashPushOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PushOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\NamedObjectFilterOrdinal.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TracerMessage.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TypeCollection.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Environment.Key.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\GitVersionException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusSubmoduleState.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\UpdateOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ExceptionBase.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TreeEntryDetailMode.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StashApplyFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\HistoryOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\NamedObject.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TagOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\NamedObjectFilterOrdinalUtf8.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StashPushFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\SubmoduleOperationStatus.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeRecursiveRenormalize.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ExecutionContext.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CherryPickOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusUnmergedEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\HistorySimplification.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PullFailedException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusTrackedEntries.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusSnapshot.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ReferenceCollection.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\OperationProgress.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CherryPickOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\OperationErrorType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RevertOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusBranchInfo.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Repository.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemotableObjectDatabase.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\SubmoduleException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DifferenceFilterFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemoteName.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CommitException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\LsFilesOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\SubmoduleUpdateOptionsFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Identity.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ReferenceType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\LsFileTypes.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Tracer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\GitException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RevertException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectDatabase.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TreeDifference.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Base.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\BranchException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Blob.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StashUpdatedFile.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CleanOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeStrategyType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\SubmoduleUpdateOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Tag.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TreeDifferenceCopiedEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RepositoryDetails.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DetachedHeadException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CloneOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\KnownDistribution.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PullRebaseStagedChangesException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeInProgressException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectDatabaseDetails.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ConfigurationLevel.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RebaseResult.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\OperationError.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\IReadable.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\FetchSubmoduleOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PullOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectBase.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusUnmergedState.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ConfigurationEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ModuleLoadFailureException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TreeDifferenceRenamedEntry.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\OperationProgressSubmoduleUpdate.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\BranchName.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TagException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TagOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeFailedException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemoteTagOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ShProcessCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TreeDifferenceType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\IndexVersion.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\SubmoduleUpdateOptionsMethods.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DifferenceOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemotableRepository.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MissingObjectException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CheckoutIndexOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\InvalidObjectIdException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\TracerKind.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Head.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\UpdatedWorktreeEntryType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ObjectHeader.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RebaseOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusIgnoreSubmodule.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CleanOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusIgnored.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\CheckoutIndexOptionStage.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RenameDetection.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemoteCollection.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StatusAheadBehind.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Environment.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\MergeRecursiveStrategy.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\InternalsVisibleTo.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Revision.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\HistoryOrder.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\StashApplyOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\RemoteNameException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\IProcess.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ProcessCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\HistoryOptionFlags.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DifferenceWhitespace.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\HeadType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PushException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\DifferenceFormat.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\NamedObjectFilter.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\GitOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PullCommandResult.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\PullSubmoduleOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ReferenceNameException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Reference.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\PullOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\AbstractPipe.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\FetchOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ResizableBuffer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\CircularBuffer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\CheckoutConflictComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StringUtf8Comparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\SubmoduleUpdateOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\NamedObjectComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ObjectHeaderComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Operation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\CloneOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\AbstractLock.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\WritablePipe.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StringUtf8.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\TreeDifferenceDetailComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\CheckoutOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ProcessType.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ReferenceCanonicalNameComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ObjectComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\CommandDelegates.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\EnvironmentVariableComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StashPushOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ReadablePipe.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\RevisionComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ConcurrentSet.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\TreeDifferenceEntryComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StashUpdatedFileComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StringUtf8ComparerOrdinal.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StringHelper.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StringBuffer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\PushOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\RemoteNameComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\PathComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\PipeKind.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\MergeConflictPatterns.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\InstallationComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ReferenceNameComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ByteBuffer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\GitProcessEnvironment.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\RevertOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Extensions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\HttpExtraHeaderComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ObjectIdComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ConfigurationEntryComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\DetachedProcess.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\DebuggerTracerListener.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\GitErrorMappingAttribute.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ReferenceComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\RemoteComparer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StringCache.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\ILoggable.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\IWritable.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\OperationParser.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\RebaseOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\PathHelper.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StringUtf8ComparerOrdinalIgnoreCase.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\StashApplyOperation.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\TracerTimer.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\Kernel32.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\SafeProcessHandle.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\Types.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\SafeSaferLevelHandle.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\SafeJobObjectHandle.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\SafeWindowsHandle.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\Advapi32.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\SafeSnapshotHandle.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\SafeThreadHandle.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32\Msvscrt.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\RevParseCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ShowCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CommitCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\DiffCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\MergeCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ResetCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ConfigCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\PullCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\PushCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\DiffIndexCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\FetchCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\UpdateIndexCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CheckoutCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\BranchCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\StashCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\RebaseCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\RemoteCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\OperationException.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\MergeBaseCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CatFileCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\LsFilesCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CloneCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ForEachRefCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\SubmoduleUpdateCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CountObjectsCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CleanCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\InitCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CherryPickCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\RevertCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\CheckoutIndexCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\GitCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\RevListCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\DiffTreeCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\StatusCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\SymbolicRefCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\TagCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\Win32DetachedProcess.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Internal\OsXDetachedProcess.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\BlameCommand.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\BlameOptions.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\InstallationDetector.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\StringExt.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Configuration.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ArgumentList.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\Cli\ProcessTextTracker.cs" />
+    <Compile Include="Microsoft.TeamFoundation.GitApi\ExecuteResult.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Microsoft.TeamFoundation.GitApi\MS.TF.GitApi.csproj" />
+    <None Include="packages.config" />
+    <None Include=".editorconfig" />
+  </ItemGroup>
+  <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
+  <ProjectExtensions>
+    <MonoDevelop>
+      <Properties>
+        <Policies>
+          <TextStylePolicy TabWidth="4" IndentWidth="4" RemoveTrailingWhitespace="True" NoTabsAfterNonTabs="False" EolMarker="Native" FileWidth="80" TabsToSpaces="True" scope="text/x-csharp" />
+          <CSharpFormattingPolicy IndentBlock="True" IndentBraces="False" IndentSwitchSection="True" IndentSwitchCaseSection="True" LabelPositioning="OneLess" NewLinesForBracesInTypes="True" NewLinesForBracesInMethods="True" NewLinesForBracesInProperties="True" NewLinesForBracesInAccessors="True" NewLinesForBracesInAnonymousMethods="True" NewLinesForBracesInControlBlocks="True" NewLinesForBracesInAnonymousTypes="True" NewLinesForBracesInObjectCollectionArrayInitializers="True" NewLinesForBracesInLambdaExpressionBody="True" NewLineForElse="True" NewLineForCatch="True" NewLineForFinally="True" NewLineForMembersInObjectInit="True" NewLineForMembersInAnonymousTypes="True" NewLineForClausesInQuery="True" SpacingAfterMethodDeclarationName="False" SpaceWithinMethodDeclarationParenthesis="False" SpaceBetweenEmptyMethodDeclarationParentheses="False" SpaceAfterMethodCallName="False" SpaceWithinMethodCallParentheses="False" SpaceBetweenEmptyMethodCallParentheses="False" SpaceAfterControlFlowStatementKeyword="True" SpaceWithinExpressionParentheses="False" SpaceWithinCastParentheses="False" SpaceWithinOtherParentheses="False" SpaceAfterCast="False" SpacesIgnoreAroundVariableDeclaration="False" SpaceBeforeOpenSquareBracket="False" SpaceBetweenEmptySquareBrackets="False" SpaceWithinSquareBrackets="False" SpaceAfterColonInBaseTypeDeclaration="True" SpaceAfterComma="True" SpaceAfterDot="False" SpaceAfterSemicolonsInForStatement="True" SpaceBeforeColonInBaseTypeDeclaration="True" SpaceBeforeComma="False" SpaceBeforeDot="False" SpaceBeforeSemicolonsInForStatement="False" SpacingAroundBinaryOperator="Single" WrappingPreserveSingleLine="True" WrappingKeepStatementsOnSingleLine="True" scope="text/x-csharp" />
+        </Policies>
+      </Properties>
+    </MonoDevelop>
+  </ProjectExtensions>
+</Project>

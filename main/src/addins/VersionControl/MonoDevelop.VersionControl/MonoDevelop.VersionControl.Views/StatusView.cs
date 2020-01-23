@@ -117,7 +117,8 @@ namespace MonoDevelop.VersionControl.Views
 				isSingleDirectory = true;
 			bool isSomethingVesioned = false;
 			foreach (var i in items) {
-				if ((await i.GetVersionInfoAsync ()).IsVersioned) {
+				var info = await i.GetVersionInfoAsync ();
+				if (info.IsVersioned) {
 					isSomethingVesioned = true;
 					break;
 				}
@@ -508,7 +509,7 @@ namespace MonoDevelop.VersionControl.Views
 
 		void LoadStatus (List<VersionInfo> newList)
 		{
-			statuses = newList.Where (FileVisible).ToList ();
+			statuses = newList.Where (vi => vc.IsFileVisibleInStatusView (vi)).ToList ();
 
 			// Remove from the changeset files/folders which have been deleted
 			var toRemove = new List<ChangeSetItem> ();
@@ -580,7 +581,7 @@ namespace MonoDevelop.VersionControl.Views
 					filelist.FreezeChildNotify ();
 
 					foreach (VersionInfo n in statuses) {
-						if (firstLoad)
+						if (firstLoad && n.Status.CommitDefault)
 							changeSet.AddFile (n);
 						AppendFileInfo (n);
 
@@ -606,15 +607,16 @@ namespace MonoDevelop.VersionControl.Views
 			}
 		}
 
+		// TreeIter? untrackedFiles;
 		TreeIter AppendFileInfo (VersionInfo n, bool expanded)
 		{
-			Xwt.Drawing.Image statusicon = VersionControlService.LoadIconForStatus(n.Status);
-			string lstatus = VersionControlService.GetStatusLabel (n.Status);
+			Xwt.Drawing.Image statusicon = n.Status.Icon;
+			string lstatus = n.Status.Label;
 
-			Xwt.Drawing.Image rstatusicon = VersionControlService.LoadIconForStatus(n.RemoteStatus);
-			string rstatus = VersionControlService.GetStatusLabel (n.RemoteStatus);
+			Xwt.Drawing.Image rstatusicon = n.Status.Icon; // TODO: Is that used?
+			string rstatus = n.Status.Label; // TODO: Is that used?
 
-			string scolor = n.HasLocalChanges && n.HasRemoteChanges ? "red" : null;
+			string scolor = n.Status.Color ?? (n.HasLocalChanges && n.HasRemoteChanges ? "red" : null);
 
 			string localpath = n.LocalPath.ToRelative (filepath);
 			if (localpath.Length > 0 && localpath[0] == Path.DirectorySeparatorChar) localpath = localpath.Substring(1);
@@ -628,11 +630,18 @@ namespace MonoDevelop.VersionControl.Views
 				fileIcon = ImageService.GetIcon (MonoDevelop.Ide.Gui.Stock.ClosedFolder, Gtk.IconSize.Menu);
 			else
 				fileIcon = IdeServices.DesktopService.GetIconForFile (n.LocalPath, Gtk.IconSize.Menu);
-
-			TreeIter it = filestore.AppendValues (statusicon, lstatus, GLib.Markup.EscapeText (localpath).Split ('\n'), rstatus, commit, false, n.LocalPath.ToString (), true, hasComment, fileIcon, n.HasLocalChanges, rstatusicon, scolor, n.HasRemoteChange (VersionStatus.Modified));
-			if (!n.IsDirectory)
-				filestore.AppendValues (it, statusicon, "", new string[0], "", false, true, n.LocalPath.ToString (), false, false, fileIcon, false, null, null, false);
-			if (expanded)
+			TreeIter it;
+			//if (!n.Status.IsTracked) {
+			//	if (untrackedFiles == null)
+			//		untrackedFiles = filestore.AppendValues (null, null, GettextCatalog.GetString ("Untracked files"), "", false, false, "", false, false, GettextCatalog.GetString ("Untracked files"), false, false, null, false);
+			//	it = filestore.AppendValues (untrackedFiles, statusicon, lstatus, GLib.Markup.EscapeText (localpath).Split ('\n'), rstatus, commit, false, n.LocalPath.ToString (), true, hasComment, fileIcon, n.HasLocalChanges, rstatusicon, scolor, n.HasRemoteChanges);
+			//} else {
+				it = filestore.AppendValues (statusicon, lstatus, GLib.Markup.EscapeText (localpath).Split ('\n'), rstatus, commit, false, n.LocalPath.ToString (), true, hasComment, fileIcon, n.HasLocalChanges, rstatusicon, scolor, n.HasRemoteChanges);
+			//}
+			if (!n.IsDirectory) {
+				filestore.AppendValues (it, statusicon, "", new string [0], "", false, n.Status.CommitDefault, n.LocalPath.ToString (), false, false, fileIcon, false, null, null, false);
+			}
+			if (expanded)
 				filelist.ExpandRow (filestore.GetPath (it), open_all: false);
 
 			return it;
@@ -990,6 +999,8 @@ namespace MonoDevelop.VersionControl.Views
 
 		void OnFileStatusChanged (object s, FileUpdateEventArgs args)
 		{
+			VersionControlService.FileStatusChanged -= OnFileStatusChanged;
+
 			try {
 				if (args.Any (f => f.FilePath == filepath || (filepath != null && !f.FilePath.IsNullOrEmpty && f.FilePath.IsChildPathOf (filepath) && f.IsDirectory))) {
 					StartUpdate ();
@@ -1000,6 +1011,7 @@ namespace MonoDevelop.VersionControl.Views
 						break;
 				}
 				UpdateControlStatus ();
+				VersionControlService.FileStatusChanged += OnFileStatusChanged;
 			} catch (Exception e) {
 				LoggingService.LogInternalError (e);
 			}
@@ -1054,7 +1066,7 @@ namespace MonoDevelop.VersionControl.Views
 				if (found && newInfo != null) {
 					VersionInfo oldInfo = statuses [oldStatusIndex];
 					if (oldInfo != null) {
-						newInfo.RemoteStatus = oldInfo.RemoteStatus;
+						// newInfo.RemoteStatus = oldInfo.RemoteStatus;
 						newInfo.RemoteRevision = oldInfo.RemoteRevision;
 					}
 				}
@@ -1063,9 +1075,8 @@ namespace MonoDevelop.VersionControl.Views
 				LoggingService.LogError (ex.ToString ());
 				return true;
 			}
-
 			if (found) {
-				if (!FileVisible (newInfo)) {
+				if (!vc.IsFileVisibleInStatusView (newInfo)) {
 					// Just remove the file from the change set
 					changeSet.RemoveFile (args.FilePath);
 					statuses.RemoveAt (oldStatusIndex);
@@ -1082,9 +1093,10 @@ namespace MonoDevelop.VersionControl.Views
 				filestore.Remove (ref oldStatusIter);
 			}
 			else {
-				if (FileVisible (newInfo)) {
+				if (vc.IsFileVisibleInStatusView (newInfo) && newInfo.IsVersioned) {
 					statuses.Add (newInfo);
-					changeSet.AddFile (newInfo);
+					if (newInfo.Status.CommitDefault)
+						changeSet.AddFile (newInfo);
 					AppendFileInfo (newInfo, wasExpanded);
 				}
 			}
@@ -1100,11 +1112,6 @@ namespace MonoDevelop.VersionControl.Views
 			}
 
 			ddata.Add (new DiffData (vc, filepath, info, remote));
-		}
-
-		static bool FileVisible (VersionInfo vinfo)
-		{
-			return vinfo != null && (vinfo.HasLocalChanges || vinfo.HasRemoteChanges);
 		}
 
 		List<DiffData> GetDiffData (bool remote)

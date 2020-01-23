@@ -18,12 +18,10 @@
   <ItemGroup>
     <Compile Include="RepositoryTests.cs" />
     <Compile Include="BaseSvnRepositoryTests.cs" />
-    <Compile Include="..\MonoDevelop.VersionControl.Git.Tests\BaseRepositoryTests.cs">
-      <Link>BaseRepositoryTests.cs</Link>
-    </Compile>
     <Compile Include="..\MonoDevelop.VersionControl\MonoDevelop.VersionControl\RevisionHelpers.cs">
       <Link>RevisionHelpers.cs</Link>
     </Compile>
+    <Compile Include="BaseRepoUtilsTest.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\core\MonoDevelop.Core\MonoDevelop.Core.csproj">

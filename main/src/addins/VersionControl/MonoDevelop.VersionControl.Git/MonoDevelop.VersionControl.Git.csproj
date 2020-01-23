@@ -66,6 +66,13 @@
     <Compile Include="Gui\MonoDevelop.VersionControl.Git.UserInfoConflictDialog.cs" />
     <Compile Include="MonoDevelop.VersionControl.Git\IGitCredentialsProvider.cs" />
     <Compile Include="MonoDevelop.VersionControl.Git\XwtCredentialsDialog.cs" />
+    <Compile Include="MonoDevelop.VersionControl.Git\OSXWhere.cs" />
+    <Compile Include="MonoDevelop.VersionControl.Git\GitAskPassPipe.cs" />
+    <Compile Include="..\MonoDevelop.VersionControl.Git.AskPass\StreamStringReadWriter.cs">
+      <Link>MonoDevelop.VersionControl.Git\StreamStringReadWriter.cs</Link>
+    </Compile>
+    <Compile Include="MonoDevelop.VersionControl.Git\GitVersionStatus.cs" />
+    <Compile Include="MonoDevelop.VersionControl.Git\GitRevision.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\core\MonoDevelop.Core\MonoDevelop.Core.csproj">
@@ -101,6 +108,19 @@
       <Project>{F8F92AA4-A376-4679-A9D4-60E7B7FBF477}</Project>
       <Name>MonoDevelop.SourceEditor</Name>
       <Private>False</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\MonoDevelop.VersionControl.Git.ClientLibrary\MonoDevelop.VersionControl.Git.ClientLibrary.csproj">
+      <Project>{7FBB8B40-2B59-4C11-8C51-47C09B67A2B3}</Project>
+      <Name>MonoDevelop.VersionControl.Git.ClientLibrary</Name>
+      <Private>False</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\..\external\vs-editor-api\src\Editor\Text\Def\TextData\TextData.csproj">
+      <Project>{44A7579B-2E53-451E-8F6B-946AD04DED3F}</Project>
+      <Name>TextData</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\..\..\external\vs-editor-api\src\Editor\Core\Def\CoreUtility.csproj">
+      <Project>{3AFF3617-E88F-4F96-AA81-00D3D9E15C05}</Project>
+      <Name>CoreUtility</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

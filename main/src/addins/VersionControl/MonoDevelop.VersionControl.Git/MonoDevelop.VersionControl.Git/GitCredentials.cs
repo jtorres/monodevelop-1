@@ -58,6 +58,8 @@ namespace MonoDevelop.VersionControl.Git
 		}
 	}
 
+	internal delegate Credentials CustomCredentialsManager (string url, string userFromUrl, SupportedCredentialTypes types, GitCredentialsType type);
+
 	static class GitCredentials
 	{
 		internal static readonly string UserCancelledExceptionMessage = GettextCatalog.GetString("Operation cancelled");
@@ -109,8 +111,12 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
+		internal static CustomCredentialsManager CustomCredentialsManager;
+
 		public static Credentials TryGet (string url, string userFromUrl, SupportedCredentialTypes types, GitCredentialsType type)
 		{
+			if (CustomCredentialsManager != null)
+				return CustomCredentialsManager (url, userFromUrl, types, type);
 			bool result = false;
 			Uri uri = null;
 			GitCredentialsState state;
