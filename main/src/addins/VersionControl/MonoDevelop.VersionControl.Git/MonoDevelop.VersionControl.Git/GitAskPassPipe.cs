@@ -64,6 +64,8 @@ namespace MonoDevelop.VersionControl.Git
 
 		public void StartPipe ()
 		{
+			if (!File.Exists (AskPassPath))
+				throw new FileNotFoundException ("Git askpass command line tool not found under: " + AskPassPath);
 			server = new NamedPipeServerStream (Pipe);
 			waitConnection = server.BeginWaitForConnection (HandleAsyncCallback, server);
 		}
