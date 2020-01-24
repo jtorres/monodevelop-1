@@ -50,7 +50,7 @@ namespace MonoDevelop.VersionControl.Git.Tests
 
 			await AddFileAsync ("testfile", "new 1", true, true);
 			await AddFileAsync ("testfile3", "new 1", true, true);
-
+			
 			var history = await Repo.GetHistoryAsync ("testfile", null);
 			Assert.AreEqual (2, history.Length);
 			Assert.AreEqual ("Commit #3\n", history [0].Message);

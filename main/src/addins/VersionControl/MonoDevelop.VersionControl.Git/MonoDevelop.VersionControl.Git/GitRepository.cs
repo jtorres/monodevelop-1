@@ -95,6 +95,9 @@ namespace MonoDevelop.VersionControl.Git
 				InitScheduler ();
 				if (this.watchGitLockfiles)
 					InitFileWatcher (false);
+
+				// update cached current branch name.
+				GetCurrentBranch ();
 			}
 		}
 
@@ -2374,8 +2377,10 @@ namespace MonoDevelop.VersionControl.Git
 
 		public Task<string> GetCurrentBranchAsync (CancellationToken cancellationToken = default)
 		{
-			CachedCurrentBranch = GitApiRootRepository.ReadHead ().FriendlyName;
-			return Task.FromResult (CachedCurrentBranch);
+			return RunOperationAsync (delegate {
+				CachedCurrentBranch = GitApiRootRepository.ReadHead ().FriendlyName;
+				return CachedCurrentBranch;
+			}, cancellationToken);
 		}
 
 		async Task SwitchBranchInternalAsync (ProgressMonitor monitor, string branch)
@@ -2437,6 +2442,7 @@ namespace MonoDevelop.VersionControl.Git
 				// Remove the stash for this branch, if exists
 				// TODO: why do with do this?
 				string currentBranch = RootRepository.Head.FriendlyName;
+				this.CachedCurrentBranch = currentBranch;
 				stashIndex = await RunBlockingOperationAsync ((token) => GetStashForBranch (RootRepository.Stashes, currentBranch), cancellationToken: monitor.CancellationToken);
 				if (stashIndex != -1)
 					await RunBlockingOperationAsync ((token) => RootRepository.Stashes.Remove (stashIndex), cancellationToken: monitor.CancellationToken).ConfigureAwait (false);
