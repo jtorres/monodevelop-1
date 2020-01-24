@@ -112,6 +112,7 @@ namespace MonoDevelop.VersionControl.Git
 		}
 
 		internal static CustomCredentialsManager CustomCredentialsManager;
+		public static SupportedCredentialTypes SshPassphrase = (SupportedCredentialTypes)(1 << 4);
 
 		public static Credentials TryGet (string url, string userFromUrl, SupportedCredentialTypes types, GitCredentialsType type)
 		{
@@ -190,6 +191,15 @@ namespace MonoDevelop.VersionControl.Git
 				}
 
 				return cred;
+			}
+
+			if ((types & SshPassphrase) != 0) {
+				cred = new SshUserKeyCredentials ();
+
+				if (XwtCredentialsDialog.Run (url, SshPassphrase, cred).Result) {
+					return cred;
+				} else
+					throw new UserCancelledException (UserCancelledExceptionMessage);
 			}
 
 			// We always need to run the TryGet* methods as we need the passphraseItem/passwordItem populated even

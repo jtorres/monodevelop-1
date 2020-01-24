@@ -25,19 +25,51 @@
 // THE SOFTWARE.
 
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.InteropServices;
 using System.Security.Principal;
+using System.Text;
 
 namespace GitAskPass
 {
 	class GitAskPass
 	{
+		[DllImport ("/usr/lib/libobjc.dylib")]
+		private static extern int setsid ();
+
+		static int RunSsh (string[] args)
+		{
+			setsid ();
+
+			var startInfo = new ProcessStartInfo ("ssh");
+			var sb = new StringBuilder ();
+			for (int i = 0; i < args.Length; i++) {
+				if (i > 0)
+					sb.Append (' ');
+				sb.Append (args [i]);
+			}
+			startInfo.Arguments = sb.ToString ();
+
+			startInfo.RedirectStandardInput = false;
+			startInfo.RedirectStandardError = false;
+			startInfo.RedirectStandardOutput = false;
+			startInfo.UseShellExecute = true;
+			var p = Process.Start (startInfo);
+			p.WaitForExit ();
+			return p.ExitCode;
+		}
+
 		public static int Main (string [] args)
 		{
 			if (args.Length < 1) {
 				Console.WriteLine ("No arguments specified.");
 				return 1;
+			}
+
+			if (args.Length > 1) {
+				return RunSsh (args);
 			}
 
 			string pipe = Environment.GetEnvironmentVariable ("MONODEVELOP_GIT_ASKPASS_PIPE");

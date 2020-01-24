@@ -66,16 +66,6 @@ namespace MonoDevelop.VersionControl.Git
 				if (repos.TryGetValue (rep.RootPath, out rob)) {
 					if (ob == rob) {
 						string branch = rep.CachedCurrentBranch;
-						//FIXME: we need to find a better way to get this sync
-						using (var cts = new CancellationTokenSource ()) {
-							var getBranch = rep.GetCurrentBranchAsync (cts.Token);
-							if (!getBranch.Wait (250)) {
-								cts.Cancel ();
-								LoggingService.LogError ("Getting current Git branch timed out");
-							} else if (!getBranch.IsFaulted)
-								branch = getBranch.Result;
-						}
-
 						if (branch == GitRepository.DefaultNoBranchName) {
 							using (var RootRepository = new LibGit2Sharp.Repository (rep.RootPath))
 								branch = RootRepository.ObjectDatabase.ShortenObjectId (RootRepository.Head.Tip);
@@ -106,12 +96,21 @@ namespace MonoDevelop.VersionControl.Git
 			}
 		}
 
-		void HandleApplicationFocusIn (object sender, EventArgs e)
+		async void HandleApplicationFocusIn (object sender, EventArgs e)
 		{
-			foreach (object ob in repos.Values) {
-				ITreeBuilder tb = Context.GetTreeBuilder (ob);
-				if (tb != null)
-					tb.Update ();
+			try {
+				foreach (var ob in repos.Values) {
+					var rep = VersionControlService.GetRepository (ob) as GitRepository;
+					await rep.GetCurrentBranchAsync ();
+				}
+
+				foreach (var ob in repos.Values) {
+					ITreeBuilder tb = Context.GetTreeBuilder (ob);
+					if (tb != null)
+						tb.Update ();
+				}
+			} catch (Exception ex) {
+				LoggingService.LogInternalError ("Error while handling application focus in.", ex);
 			}
 		}
 
