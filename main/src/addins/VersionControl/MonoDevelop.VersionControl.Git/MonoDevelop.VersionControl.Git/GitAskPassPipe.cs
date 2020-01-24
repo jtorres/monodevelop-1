@@ -132,7 +132,7 @@ namespace MonoDevelop.VersionControl.Git
 		string OnGetSSHPassphrase (string key)
 		{
 			try {
-				var cred = GitCredentials.TryGet (Url, key, SupportedCredentialTypes.SshPassphrase, GitCredentialsType.Normal) as SshUserKeyCredentials;
+				var cred = GitCredentials.TryGet (Url, key, GitCredentials.SshPassphrase, GitCredentialsType.Normal) as SshUserKeyCredentials;
 				if (cred == null)
 					throw new InvalidOperationException ("Can't get ssh passphrase.");
 				return cred.Passphrase;
@@ -145,7 +145,7 @@ namespace MonoDevelop.VersionControl.Git
 		string OnGetSSHPassword (string userName)
 		{
 			try {
-				var cred = GitCredentials.TryGet (Url, userName, SupportedCredentialTypes.SshPassphrase, GitCredentialsType.Normal) as SshUserKeyCredentials;
+				var cred = GitCredentials.TryGet (Url, userName, GitCredentials.SshPassphrase, GitCredentialsType.Normal) as SshUserKeyCredentials;
 				if (cred == null)
 					throw new InvalidOperationException ("Can't ssh password.");
 				return cred.Passphrase;
