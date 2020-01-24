@@ -192,6 +192,15 @@ namespace MonoDevelop.VersionControl.Git
 				return cred;
 			}
 
+			if ((types & SupportedCredentialTypes.SshPassphrase) != 0) {
+				cred = new SshUserKeyCredentials ();
+
+				if (XwtCredentialsDialog.Run (url, SupportedCredentialTypes.SshPassphrase, cred).Result) {
+					return cred;
+				} else
+					throw new UserCancelledException (UserCancelledExceptionMessage);
+			}
+
 			// We always need to run the TryGet* methods as we need the passphraseItem/passwordItem populated even
 			// if the password store contains an invalid password/no password
 			if ((types & SupportedCredentialTypes.UsernamePassword) != 0) {
