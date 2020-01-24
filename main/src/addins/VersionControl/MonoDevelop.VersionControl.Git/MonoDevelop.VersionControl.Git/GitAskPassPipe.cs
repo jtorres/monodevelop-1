@@ -60,6 +60,10 @@ namespace MonoDevelop.VersionControl.Git
 		{
 			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable (ENV_VAR, Pipe));
 			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable ("GIT_ASKPASS", AskPassPath));
+			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable ("DISPLAY", "localhost:0.0"));
+			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable ("SSH_ASKPASS", AskPassPath));
+			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable ("GIT_SSH", AskPassPath));
+
 		}
 
 		public void StartPipe ()
@@ -128,7 +132,7 @@ namespace MonoDevelop.VersionControl.Git
 		string OnGetSSHPassphrase (string key)
 		{
 			try {
-				var cred = GitCredentials.TryGet (Url, key, SupportedCredentialTypes.Ssh, GitCredentialsType.Normal) as SshUserKeyCredentials;
+				var cred = GitCredentials.TryGet (Url, key, GitCredentials.SshPassphrase, GitCredentialsType.Normal) as SshUserKeyCredentials;
 				if (cred == null)
 					throw new InvalidOperationException ("Can't get ssh passphrase.");
 				return cred.Passphrase;
@@ -141,7 +145,7 @@ namespace MonoDevelop.VersionControl.Git
 		string OnGetSSHPassword (string userName)
 		{
 			try {
-				var cred = GitCredentials.TryGet (Url, userName, SupportedCredentialTypes.Ssh, GitCredentialsType.Normal) as SshUserKeyCredentials;
+				var cred = GitCredentials.TryGet (Url, userName, GitCredentials.SshPassphrase, GitCredentialsType.Normal) as SshUserKeyCredentials;
 				if (cred == null)
 					throw new InvalidOperationException ("Can't ssh password.");
 				return cred.Passphrase;

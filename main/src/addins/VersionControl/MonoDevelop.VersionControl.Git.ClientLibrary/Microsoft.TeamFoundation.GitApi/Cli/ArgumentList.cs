@@ -147,6 +147,8 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
 
         private bool ShouldQuote(string argument)
         {
+            if (argument.Length > 2 && argument[0] == '\"' && argument[argument.Length - 1] == '\"')
+                return false;
             return argument.IndexOfAny(new[] { ' ', '\t', '"', '\\' }) >= 0;
         }
 

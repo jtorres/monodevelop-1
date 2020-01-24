@@ -81,6 +81,12 @@ namespace Microsoft.TeamFoundation.GitApi.Cli
             // build up a command
             using (var command = new ArgumentList(Command))
             {
+                command.Prepend("\"credential.helper=\"");
+                command.Prepend("-c");
+                command.Prepend("\"core.quotepath=false\"");
+                command.Prepend("-c");
+                command.Prepend("\"log.showSignature=false\"");
+                command.Prepend("-c");
                 command.AddOption("--progress");
                 command.AddOption("--verbose");
 
