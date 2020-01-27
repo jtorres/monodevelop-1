@@ -185,12 +185,12 @@ namespace Microsoft.TeamFoundation.GitApi
                                     char ca = *src++;
                                     char cb = *src++;
                                     int ia = HexToDec(ca);
-                                    ia <<= NibbleBits0;
-                                    ia &= MaskNibble0;
+                                    ia <<= NibbleBits1;
+                                    ia &= MaskNibble1;
 
                                     int ib = HexToDec(cb);
-                                    ib <<= NibbleBits1;
-                                    ib &= MaskNibble1;
+                                    ib <<= NibbleBits0;
+                                    ib &= MaskNibble0;
 
                                     *dst++ = (byte)(ia | ib);
                                 }

@@ -77,6 +77,7 @@ namespace GitAskPass
 				Console.WriteLine ("No arguments specified.");
 				return 1;
 			}
+
 			try {
 				using (var client = new NamedPipeClientStream (".", pipe, PipeDirection.InOut, PipeOptions.None, TokenImpersonationLevel.Impersonation)) {
 					client.Connect ();
@@ -85,7 +86,8 @@ namespace GitAskPass
 						Console.WriteLine ("can't handle : " + args [0]);
 						return 2;
 					}
-					Console.WriteLine (writer.ReadLine ());
+					var remoteResult = writer.ReadLine ();
+					Console.WriteLine (remoteResult);
 				}
 			} catch (Exception e) {
 				Console.WriteLine (e.Message);

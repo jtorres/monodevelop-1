@@ -104,25 +104,29 @@ namespace MonoDevelop.VersionControl
 		{
 			if (IsGloballyDisabled)
 				return null;
+			try {
+				InternalRepositoryReference repoRef = (InternalRepositoryReference)entry.ExtendedProperties [typeof (InternalRepositoryReference)];
+				if (repoRef != null && !repoRef.Repo.IsDisposed)
+					return repoRef.Repo;
 
-			InternalRepositoryReference repoRef = (InternalRepositoryReference) entry.ExtendedProperties [typeof(InternalRepositoryReference)];
-			if (repoRef != null && !repoRef.Repo.IsDisposed)
-				return repoRef.Repo;
-			
-			Repository repo = GetRepositoryReference (entry.BaseDirectory, entry.Name);
-			InternalRepositoryReference rref = null;
-			if (repo != null) {
-				repo.AddRef ();
-				lock (referenceCacheLock) {
-					if (!referenceCache.TryGetValue (repo, out rref)) {
-						rref = new InternalRepositoryReference (repo);
-						referenceCache [repo] = rref;
+				Repository repo = GetRepositoryReference (entry.BaseDirectory, entry.Name);
+				InternalRepositoryReference rref = null;
+				if (repo != null) {
+					repo.AddRef ();
+					lock (referenceCacheLock) {
+						if (!referenceCache.TryGetValue (repo, out rref)) {
+							rref = new InternalRepositoryReference (repo);
+							referenceCache [repo] = rref;
+						}
 					}
 				}
+				entry.ExtendedProperties [typeof (InternalRepositoryReference)] = rref;
+
+				return repo;
+			} catch (Exception e) {
+				LoggingService.LogInternalError ("Can't get repository for : " + entry, e);
+				return null;
 			}
-			entry.ExtendedProperties [typeof(InternalRepositoryReference)] = rref;
-			
-			return repo;
 		}
 
 		internal static readonly object repositoryCacheLock = new object ();
