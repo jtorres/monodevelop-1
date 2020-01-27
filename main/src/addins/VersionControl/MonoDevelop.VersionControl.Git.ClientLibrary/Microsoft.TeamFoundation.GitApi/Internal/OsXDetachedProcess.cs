@@ -80,11 +80,11 @@ namespace Microsoft.TeamFoundation.GitApi.Internal
 
         public override bool RedirectStandardPipes { get; set; }
 
-        public override StreamReader StandardError => new StreamReader (StdErr, Encoding);
+        public override StreamReader StandardError => process.StandardError;
 
         public override StreamWriter StandardInput => process.StandardInput;
 
-        public override StreamReader StandardOutput => new StreamReader (StdOut, Encoding);
+        public override StreamReader StandardOutput => process.StandardOutput;
 
         public override Stream StdErr => process.StandardError.BaseStream;
 

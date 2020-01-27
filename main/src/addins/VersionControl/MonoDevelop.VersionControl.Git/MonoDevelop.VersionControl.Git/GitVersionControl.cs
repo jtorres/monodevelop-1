@@ -68,7 +68,12 @@ namespace MonoDevelop.VersionControl.Git
 
 		public override Repository GetRepositoryReference (FilePath path, string id)
 		{
-			return new GitRepository (this, path, null);
+			try {
+				return new GitRepository (this, path, null);
+			} catch (System.Exception e) {
+				LoggingService.LogInternalError ("Error while creating a git repository for: " + path, e);
+				return null;
+			}
 		}
 
 		protected override Repository OnCreateRepositoryInstance ()
