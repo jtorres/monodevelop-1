@@ -26,13 +26,14 @@
 
 using System;
 using System.IO;
+using System.Resources;
 using System.Text.RegularExpressions;
 
 namespace GitAskPass
 {
 	class ArgumentHandler
 	{
-		static Regex passPhraseRegex = new Regex("Enter passphrase for key \\'(.*)\\':\\s?", RegexOptions.Compiled);
+		static Regex passPhraseRegex = new Regex ("Enter passphrase for key \\'(.*)\\':\\s?", RegexOptions.Compiled);
 		static Regex passwordPrompt = new Regex("(.*)\\'s password:\\s?", RegexOptions.Compiled);
 
 		internal static bool Handle (string command, StreamStringReadWriter writer) => 
@@ -72,10 +73,15 @@ namespace GitAskPass
 			return false;
 		}
 
+		static Regex authenticateRegex = new Regex ("The authenticity of host '(.*)' can't be established.*key fingerprint is (.*)\\..*", RegexOptions.Compiled | RegexOptions.Singleline);
+
 		static bool HandleConnecting (string command, StreamStringReadWriter writer)
 		{
-			if (command.Contains ("Are you sure you want to continue connecting")) {
+			var match = authenticateRegex.Match (command);
+			if (match.Success) {
 				writer.WriteLine ("Continue connecting");
+				writer.WriteLine (match.Groups [1].Value);
+				writer.WriteLine (match.Groups [2].Value);
 				return true;
 			}
 			return false;

@@ -567,7 +567,6 @@ namespace MonoDevelop.VersionControl.Git
 
 		internal Signature GetSignature ()
 		{
-			// TODO: Investigate Configuration.BuildSignature.
 			string name;
 			string email;
 
@@ -1711,15 +1710,21 @@ namespace MonoDevelop.VersionControl.Git
 				options.RecurseSubmodules = true;
 				options.Checkout = true;
 				options.ProgressCallback = new ProgressMonitorOperationBinder (monitor);
+				bool forceClosed = false;
 				try {
 					using (var pipe = new GitAskPassPipe (Url)) {
 						pipe.StartPipe ();
+						pipe.ForceClose += delegate {
+							forceClosed = true;
+						};
 						GitApiRootRepository = await Microsoft.TeamFoundation.GitApi.Repository.CloneAsync (ctx, Url, targetLocalPath, options, null, monitor.CancellationToken);
 						RootPath = targetLocalPath.CanonicalPath;
 						if (monitor.CancellationToken.IsCancellationRequested || RootPath.IsNull)
 							return;
 					}
 				} catch (Exception e) {
+					if (forceClosed) // continueConnecting not acceppted -> don't throw exception. GIT backend throws exception in that case.
+						return;
 					LoggingService.LogInternalError ("Error while cloning repository " + rev + " recuse: " + recurse + " using fallback.", e);
 					await OnCheckoutAsync_LibGitFallback (targetLocalPath, rev, recurse, monitor);
 				}
@@ -2122,6 +2127,7 @@ namespace MonoDevelop.VersionControl.Git
 
 		public async Task PushAsync (ProgressMonitor monitor, string remote, string remoteBranch)
 		{
+			bool forceClosed = false;
 			try {
 				bool success = true;
 
@@ -2129,6 +2135,9 @@ namespace MonoDevelop.VersionControl.Git
 					var options = new Microsoft.TeamFoundation.GitApi.PushOptions ();
 					options.ProgressCallback = new ProgressMonitorOperationBinder (monitor);
 					using (var pipe = new GitAskPassPipe (Url)) {
+						pipe.ForceClose += delegate {
+							forceClosed = true;
+						};
 						pipe.StartPipe ();
 						GitApiRootRepository.Push (GitApiRootRepository.ReadHead ().AsBranch (),
 							new Microsoft.TeamFoundation.GitApi.RemoteName (remote),
@@ -2141,6 +2150,8 @@ namespace MonoDevelop.VersionControl.Git
 					return;
 				monitor.ReportSuccess (GettextCatalog.GetString ("Push operation successfully completed."));
 			} catch (Exception e) {
+				if (forceClosed) // continueConnecting not acceppted -> don't throw exception. GIT backend throws exception in that case.
+					return;
 				await PushAsync_LibGitFallback (monitor, remote, remoteBranch);
 			}
 		}

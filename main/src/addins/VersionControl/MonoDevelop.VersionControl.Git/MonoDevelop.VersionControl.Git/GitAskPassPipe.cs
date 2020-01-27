@@ -29,6 +29,7 @@ using System.IO;
 using System.IO.Pipes;
 using LibGit2Sharp;
 using MonoDevelop.Core;
+using MonoDevelop.Ide;
 
 namespace MonoDevelop.VersionControl.Git
 {
@@ -63,7 +64,6 @@ namespace MonoDevelop.VersionControl.Git
 			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable ("DISPLAY", "localhost:0.0"));
 			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable ("SSH_ASKPASS", AskPassPath));
 			ctx.Git.EnvironmentValues.Add (new Microsoft.TeamFoundation.GitApi.Environment.Variable ("GIT_SSH", AskPassPath));
-
 		}
 
 		public void StartPipe ()
@@ -104,7 +104,9 @@ namespace MonoDevelop.VersionControl.Git
 				}
 				break;
 			case "Continue connecting":
-				reader.WriteLine (OnGetContinueConnecting () ? "yes" : "no");
+				url = reader.ReadLine ();
+				string fingerprint = reader.ReadLine ();
+				reader.WriteLine (OnGetContinueConnecting (url, fingerprint) ? "yes" : "no");
 				break;
 			case "SSHPassPhrase":
 				string key = reader.ReadLine ();
@@ -123,11 +125,21 @@ namespace MonoDevelop.VersionControl.Git
 			server.BeginWaitForConnection (HandleAsyncCallback, server);
 		}
 
-		bool OnGetContinueConnecting ()
+		bool OnGetContinueConnecting (string url, string fingerprint)
 		{
-			// TODO.
-			return true;
+			var result = MessageService.AskQuestion (
+				GettextCatalog.GetString ("Are you sure you want to continue connecting?"),
+				GettextCatalog.GetString (@"The authenticity of host '{0}' can't be established.
+RSA key fingerprint is {1}.", url, fingerprint),
+				AlertButton.Yes,
+				AlertButton.No
+				);
+			if (result == AlertButton.No)
+				ForceClose?.Invoke (this, EventArgs.Empty);
+			return result == AlertButton.Yes;
 		}
+
+		public event EventHandler ForceClose;
 
 		string OnGetSSHPassphrase (string key)
 		{
