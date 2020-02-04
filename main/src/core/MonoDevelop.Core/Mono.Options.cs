@@ -173,6 +173,7 @@ namespace Mono.Options
 		public bool Remove (string item)                    {return values.Remove (item);}
 		public int Count                                    {get {return values.Count;}}
 		public bool IsReadOnly                              {get {return false;}}
+		public bool Foo                              	    {get {return true;}}
 		#endregion
 
 		#region IEnumerable
