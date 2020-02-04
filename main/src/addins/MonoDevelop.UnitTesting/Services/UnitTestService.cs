@@ -13,10 +13,10 @@
 // distribute, sublicense, and/or sell copies of the Software, and to
 // permit persons to whom the Software is furnished to do so, subject to
 // the following conditions:
-// 
+//
 // The above copyright notice and this permission notice shall be
 // included in all copies or substantial portions of the Software.
-// 
+//
 // THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
 // EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
 // MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
@@ -50,7 +50,7 @@ namespace MonoDevelop.UnitTesting
 	{
 		static ArrayList providers = new ArrayList ();
 		static UnitTest[] rootTests;
-		
+
 		static UnitTestService ()
 		{
 			IdeApp.Workspace.WorkspaceItemOpened += OnWorkspaceChanged;
@@ -64,6 +64,7 @@ namespace MonoDevelop.UnitTesting
 
 			PackageManagementServices.ProjectOperations.PackageReferenceAdded += ProjectOperations_PackageReferencesModified;
 			PackageManagementServices.ProjectOperations.PackageReferenceRemoved += ProjectOperations_PackageReferencesModified;
+			PackageManagementServices.ProjectOperations.PackagesRestored += ProjectOperations_PackageReferencesModified;
 
 			Mono.Addins.AddinManager.AddExtensionNodeHandler ("/MonoDevelop/UnitTesting/TestProviders", OnExtensionChange);
 
@@ -104,11 +105,11 @@ namespace MonoDevelop.UnitTesting
 
 		public static AsyncOperation RunTest (UnitTest test, MonoDevelop.Projects.ExecutionContext context)
 		{
-			var result = RunTest (test, context, IdeApp.Preferences.BuildBeforeRunningTests);
+			var result = RunTest (test, context, true);
 			result.Task.ContinueWith (t => OnTestSessionCompleted (), TaskScheduler.FromCurrentSynchronizationContext ());
 			return result;
 		}
-		
+
 		public static AsyncOperation RunTest (UnitTest test, MonoDevelop.Projects.ExecutionContext context, bool buildOwnerObject)
 		{
 			var cs = new CancellationTokenSource ();
@@ -125,56 +126,40 @@ namespace MonoDevelop.UnitTesting
 			if (buildOwnerObject) {
 				var build_targets = new HashSet<IBuildTarget> ();
 				foreach (var t in tests) {
-					IBuildTarget bt = t.OwnerObject as IBuildTarget;
-					if (bt != null)
+					if (t.OwnerObject is IBuildTarget bt)
 						build_targets.Add (bt);
 				}
-				if (build_targets.Count > 0) {
-					if (!IdeApp.ProjectOperations.CurrentRunOperation.IsCompleted) {
-						MonoDevelop.Ide.Commands.StopHandler.StopBuildOperations ();
-						await IdeApp.ProjectOperations.CurrentRunOperation.Task;
-					}
+				var res = await IdeApp.ProjectOperations.CheckAndBuildForExecute (
+					build_targets, IdeApp.Workspace.ActiveConfiguration, buildWithoutPrompting: !IdeApp.Preferences.BuildBeforeRunningTests, 
+					false, null, cs.Token);
 
-					foreach (var bt in build_targets) {
-						var res = await IdeApp.ProjectOperations.Build (bt, cs.Token).Task;
-						if (res.HasErrors)
-							return;
-					}
-
-					var test_names = new HashSet<string> (tests.Select ((v) => v.FullName));
-
-					await RefreshTests (cs.Token);
-
-					tests = test_names.Select ((fullName) => SearchTest (fullName)).Where ((t) => t != null).ToList ();
-
-					if (tests.Any ())
-						await RunTests (tests, context, false, checkCurrentRunOperation, cs);
+				if (!res)
 					return;
-				}
+
+				var test_names = new HashSet<string> (tests.Select ((v) => v.FullName));
+
+				await RefreshTests (cs.Token);
+
+				tests = test_names.Select ((fullName) => SearchTest (fullName)).Where ((t) => t != null).ToList ();
+
+				if (tests.Any ())
+					await RunTests (tests, context, false, checkCurrentRunOperation, cs);
+				return;
 			}
-			
+
 			if (checkCurrentRunOperation && !IdeApp.ProjectOperations.ConfirmExecutionOperation ())
 				return;
-			
-			Pad resultsPad = IdeApp.Workbench.GetPad <TestResultsPad>();
-			if (resultsPad == null) {
-				resultsPad = IdeApp.Workbench.ShowPad (new TestResultsPad (), "MonoDevelop.UnitTesting.TestResultsPad", GettextCatalog.GetString ("Test results"), "Bottom", "md-solution");
-			}
-			
-			// Make the pad sticky while the tests are runnig, so the results pad is always visible (even if minimized)
-			// That's required since when running in debug mode, the layout is automatically switched to debug.
-			
-			resultsPad.Sticky = true;
-			resultsPad.BringToFront ();
-			
+
+			Pad resultsPad = GetTestResultsPad ();
+
 			var test = tests.Count () == 1 ? tests.First () : new UnitTestSelection (tests, tests.First ().OwnerObject);
 			TestSession session = new TestSession (test, context, (TestResultsPad) resultsPad.Content, cs);
-			
+
 			OnTestSessionStarting (new TestSessionEventArgs { Session = session, Test = test });
 
 			if (checkCurrentRunOperation)
 				IdeApp.ProjectOperations.AddRunOperation (session);
-			
+
 			try {
 				await session.Start ();
 			} finally {
@@ -184,7 +169,7 @@ namespace MonoDevelop.UnitTesting
 
 		public static AsyncOperation RunTests (IEnumerable<UnitTest> tests, MonoDevelop.Projects.ExecutionContext context)
 		{
-			var result = RunTests (tests, context, IdeApp.Preferences.BuildBeforeRunningTests);
+			var result = RunTests (tests, context, true);
 			result.Task.ContinueWith (t => OnTestSessionCompleted (), TaskScheduler.FromCurrentSynchronizationContext ());
 			return result;
 		}
@@ -212,6 +197,30 @@ namespace MonoDevelop.UnitTesting
 				t.UpdateTests ();
 		}
 
+		public static void ReportExecutionError (string message)
+		{
+			Pad resultsPad = GetTestResultsPad ();
+			var monitor = (TestResultsPad)resultsPad.Content;
+			monitor.InitializeTestRun (null, null);
+			monitor.ReportExecutionError (message);
+			monitor.FinishTestRun ();
+		}
+
+		static Pad GetTestResultsPad ()
+		{
+			Pad resultsPad = IdeApp.Workbench.GetPad<TestResultsPad> ();
+			if (resultsPad == null) {
+				resultsPad = IdeApp.Workbench.ShowPad (new TestResultsPad (), "MonoDevelop.UnitTesting.TestResultsPad", GettextCatalog.GetString ("Test results"), "Bottom", "md-solution");
+			}
+
+			// Make the pad sticky while the tests are runnig, so the results pad is always visible (even if minimized)
+			// That's required since when running in debug mode, the layout is automatically switched to debug.
+
+			resultsPad.Sticky = true;
+			resultsPad.BringToFront ();
+			return resultsPad;
+		}
+
 		public static UnitTest SearchTest (string fullName)
 		{
 			foreach (UnitTest t in RootTests) {
@@ -232,7 +241,7 @@ namespace MonoDevelop.UnitTesting
 			return null;
 		}
 
-		
+
 		static UnitTest SearchTest (UnitTest test, string fullName)
 		{
 			if (test == null)
@@ -273,7 +282,7 @@ namespace MonoDevelop.UnitTesting
 		{
 			return FindRootTest (RootTests, item);
 		}
-		
+
 		public static UnitTest FindRootTest (IEnumerable<UnitTest> tests, WorkspaceObject item)
 		{
 			foreach (UnitTest t in tests) {
@@ -288,7 +297,7 @@ namespace MonoDevelop.UnitTesting
 			}
 			return null;
 		}
-		
+
 		static void OnWorkspaceChanged (object sender, EventArgs e)
 		{
 			RebuildTests ();
@@ -308,7 +317,7 @@ namespace MonoDevelop.UnitTesting
 
 		static CancellationTokenSource throttling = new CancellationTokenSource ();
 
-		static void ProjectOperations_PackageReferencesModified (object sender, PackageManagementPackageReferenceEventArgs e)
+		static void ProjectOperations_PackageReferencesModified(object sender, EventArgs e)
 		{
 			throttling.Cancel ();
 			throttling = new CancellationTokenSource ();
@@ -334,24 +343,40 @@ namespace MonoDevelop.UnitTesting
 			return false;
 		}
 
-		static void RebuildTests ()
+
+		static CancellationTokenSource rebuildTestsCts = new CancellationTokenSource ();
+		async static void RebuildTests ()
 		{
-			if (rootTests != null) {
-				foreach (IDisposable t in rootTests)
-					t.Dispose ();
+			try {
+				if (rootTests != null) {
+					foreach (IDisposable t in rootTests)
+						t.Dispose ();
+				}
+				rootTests = Array.Empty<UnitTest> ();
+				List<UnitTest> list = new List<UnitTest> ();
+				rebuildTestsCts.Cancel ();
+				rebuildTestsCts = new CancellationTokenSource ();
+				var token = rebuildTestsCts.Token;
+				var items = IdeApp.Workspace.Items.ToArray ();
+				await Task.Run (() => {
+					foreach (WorkspaceItem it in items) {
+						if (token.IsCancellationRequested)
+							return;
+						UnitTest t = BuildTest (it);
+						if (t != null)
+							list.Add (t);
+					}
+				}, token);
+				if (token.IsCancellationRequested)
+					return;
+				rootTests = list.ToArray ();
+				NotifyTestSuiteChanged ();
+			} catch (OperationCanceledException) {
+			} catch (Exception ex) {
+				LoggingService.LogError ("Exception gathering unit tests.", ex);
 			}
-
-			List<UnitTest> list = new List<UnitTest> ();
-			foreach (WorkspaceItem it in IdeApp.Workspace.Items) {
-				UnitTest t = BuildTest (it);
-				if (t != null)
-					list.Add (t);
-			}
-
-			rootTests = list.ToArray ();
-			NotifyTestSuiteChanged ();
 		}
-		
+
 		public static UnitTest BuildTest (WorkspaceObject entry)
 		{
 			foreach (ITestProvider p in providers) {
@@ -391,7 +416,7 @@ namespace MonoDevelop.UnitTesting
 		public static UnitTest[] RootTests {
 			get { return rootTests; }
 		}
-		
+
 		static void NotifyTestSuiteChanged ()
 		{
 			Runtime.RunInMainThread (() => {
@@ -427,7 +452,7 @@ namespace MonoDevelop.UnitTesting
 		/// </summary>
 		public static event EventHandler<TestSessionEventArgs> TestSessionStarting;
 	}
-	
+
 
 
 	class TestSession: AsyncOperation
@@ -448,7 +473,7 @@ namespace MonoDevelop.UnitTesting
 			resultsPad.InitializeTestRun (test, cs);
 			Task = new Task ((Action)RunTests);
 		}
-		
+
 		public Task Start ()
 		{
 			Task.Start ();
@@ -460,7 +485,7 @@ namespace MonoDevelop.UnitTesting
 			try {
 				UnitTestService.ResetResult (test);
 
-				TestContext ctx = new TestContext (monitor, resultsPad, context, DateTime.Now);
+				TestContext ctx = new TestContext (monitor, context, DateTime.Now);
 				test.Run (ctx);
 				test.SaveResults ();
 			} catch (Exception ex) {

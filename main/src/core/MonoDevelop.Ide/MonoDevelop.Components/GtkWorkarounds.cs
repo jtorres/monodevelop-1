@@ -603,11 +603,11 @@ namespace MonoDevelop.Components
 
 		//introduced in GTK 2.20
 		[DllImport (PangoUtil.LIBGDK, CallingConvention = CallingConvention.Cdecl)]
-		extern static bool gdk_keymap_add_virtual_modifiers (IntPtr keymap, ref Gdk.ModifierType state);
+		extern static void gdk_keymap_add_virtual_modifiers (IntPtr keymap, ref Gdk.ModifierType state);
 
 		//Custom patch in Mono Mac w/GTK+ 2.24.8+
 		[DllImport (PangoUtil.LIBGDK, CallingConvention = CallingConvention.Cdecl)]
-		extern static bool gdk_quartz_set_fix_modifiers (bool fix);
+		extern static void gdk_quartz_set_fix_modifiers (bool fix);
 
 		static Gdk.Keymap keymap = Gdk.Keymap.Default;
 		static Dictionary<ulong,MappedKeys> mappedKeys = new Dictionary<ulong,MappedKeys> ();
@@ -1111,6 +1111,12 @@ namespace MonoDevelop.Components
 
 		public static void SetOverlayScrollbarPolicy (Gtk.ScrolledWindow sw, Gtk.PolicyType hpolicy, Gtk.PolicyType vpolicy)
 		{
+			// we know the .dll isn't there on Windows, so don't even try (avoids a first-chance DllNotFoundException)
+			if (Platform.IsWindows) {
+				canSetOverlayScrollbarPolicy = false;
+				return;
+			}
+
 			if (!canSetOverlayScrollbarPolicy) {
 				return;
 			}
@@ -1525,26 +1531,19 @@ namespace MonoDevelop.Components
 		}
 	}
 
-	public struct KeyboardShortcut : IEquatable<KeyboardShortcut>
+	public readonly struct KeyboardShortcut : IEquatable<KeyboardShortcut>
 	{
 		public static readonly KeyboardShortcut Empty = new KeyboardShortcut ((Gdk.Key) 0, (Gdk.ModifierType) 0);
 
-		Gdk.ModifierType modifier;
-		Gdk.Key key;
-
 		public KeyboardShortcut (Gdk.Key key, Gdk.ModifierType modifier)
 		{
-			this.modifier = modifier;
-			this.key = key;
+			this.Modifier = modifier;
+			this.Key = key;
 		}
 
-		public Gdk.Key Key {
-			get { return key; }
-		}
+		public Gdk.Key Key { get; }
 
-		public Gdk.ModifierType Modifier {
-			get { return modifier; }
-		}
+		public Gdk.ModifierType Modifier { get; }
 
 		public bool IsEmpty {
 			get { return Key == (Gdk.Key) 0; }

@@ -32,6 +32,7 @@ using System.Globalization;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Host;
 using MonoDevelop.Core;
 using MonoDevelop.Core.Serialization;
 using MonoDevelop.Projects;
@@ -107,9 +108,32 @@ namespace MonoDevelop.CSharp.Project
 			warninglevel = pset.GetValue<int?> ("WarningLevel", null);
 		}
 
+		static MetadataReferenceResolver CreateMetadataReferenceResolver (IMetadataService metadataService, string projectDirectory, string outputDirectory)
+		{
+			ImmutableArray<string> assemblySearchPaths;
+			if (projectDirectory != null && outputDirectory != null) {
+				assemblySearchPaths = ImmutableArray.Create (projectDirectory, outputDirectory);
+			} else if (projectDirectory != null) {
+				assemblySearchPaths = ImmutableArray.Create (projectDirectory);
+			} else if (outputDirectory != null) {
+				assemblySearchPaths = ImmutableArray.Create (outputDirectory);
+			} else {
+				assemblySearchPaths = ImmutableArray<string>.Empty;
+			}
+
+			return new WorkspaceMetadataFileReferenceResolver (metadataService, new RelativePathResolver (assemblySearchPaths, baseDirectory: projectDirectory));
+		}
+
 		public override CompilationOptions CreateCompilationOptions ()
 		{
 			var project = (CSharpProject)ParentProject;
+			var workspace = Ide.TypeSystem.TypeSystemService.GetWorkspace (project.ParentSolution);
+			var metadataReferenceResolver = CreateMetadataReferenceResolver (
+					workspace.Services.GetService<IMetadataService> (),
+					project.BaseDirectory,
+					ParentConfiguration.OutputDirectory
+			);
+
 			var options = new CSharpCompilationOptions (
 				OutputKind.ConsoleApplication,
 				false,
@@ -129,6 +153,7 @@ namespace MonoDevelop.CSharp.Project
 				WarningLevel,
 				null,
 				false,
+				metadataReferenceResolver: metadataReferenceResolver,
 				assemblyIdentityComparer: DesktopAssemblyIdentityComparer.Default,
 				strongNameProvider: new DesktopStrongNameProvider ()
 			);
@@ -136,8 +161,22 @@ namespace MonoDevelop.CSharp.Project
 			return options.WithPlatform (GetPlatform ())
 				.WithGeneralDiagnosticOption (TreatWarningsAsErrors ? ReportDiagnostic.Error : ReportDiagnostic.Default)
 				.WithOptimizationLevel (Optimize ? OptimizationLevel.Release : OptimizationLevel.Debug)
-				.WithSpecificDiagnosticOptions (GetSuppressedWarnings ().ToDictionary (
-					suppress => suppress, _ => ReportDiagnostic.Suppress));
+				.WithSpecificDiagnosticOptions (GetSpecificDiagnosticOptions());
+		}
+
+		Dictionary<string, ReportDiagnostic> GetSpecificDiagnosticOptions ()
+		{
+			var result = new Dictionary<string, ReportDiagnostic> ();
+			foreach (var warning in GetSuppressedWarnings ())
+				result [warning] = ReportDiagnostic.Suppress;
+
+			var globalRuleSet = Ide.TypeSystem.TypeSystemService.RuleSetManager.GetGlobalRuleSet ();
+			if (globalRuleSet != null) {
+				foreach (var kv in globalRuleSet.SpecificDiagnosticOptions) {
+					result [kv.Key] = kv.Value;
+				}
+			}
+			return result;
 		}
 
 		Microsoft.CodeAnalysis.Platform GetPlatform ()
@@ -168,9 +207,7 @@ namespace MonoDevelop.CSharp.Project
 			var symbols = GetDefineSymbols ();
 			if (configuration != null)
 				symbols = symbols.Concat (configuration.GetDefineSymbols ()).Distinct ();
-
-			LanguageVersion lv;
-			TryParseLanguageVersion (langVersion, out lv);
+			LanguageVersionFacts.TryParse (langVersion, out LanguageVersion lv);
 
 			return new CSharpParseOptions (
 				lv,
@@ -183,8 +220,7 @@ namespace MonoDevelop.CSharp.Project
 
 		public LanguageVersion LangVersion {
 			get {
-				LanguageVersion val;
-				if (!TryParseLanguageVersion (langVersion, out val)) {
+				if (!LanguageVersionFacts.TryParse (langVersion, out LanguageVersion val)) {
 					throw new Exception ("Unknown LangVersion string '" + langVersion + "'");
 				}
 				return val;
@@ -375,62 +411,9 @@ namespace MonoDevelop.CSharp.Project
 			case LanguageVersion.CSharp1: return "ISO-1";
 			case LanguageVersion.CSharp2: return "ISO-2";
 			case LanguageVersion.CSharp7_1: return "7.1";
+			case LanguageVersion.CSharp7_2: return "7.2";
+			case LanguageVersion.CSharp7_3: return "7.3";
 			default: return ((int)value).ToString ();
-			}
-		}
-
-		// From https://github.com/dotnet/roslyn/blob/f60facc9f40ddc40f85411372f5b8dde9dd5e3b4/src/Compilers/CSharp/Portable/CommandLine/CSharpCommandLineParser.cs
-		// Copyright (c) Microsoft.  All Rights Reserved.  Licensed under the Apache License, Version 2.0.  See License.txt in the project root for license information.
-		static bool TryParseLanguageVersion (string str, out LanguageVersion version)
-		{
-			if (str == null) {
-				version = LanguageVersion.Default;
-				return true;
-			}
-
-			switch (str.ToLowerInvariant ()) {
-			case "iso-1":
-				version = LanguageVersion.CSharp1;
-				return true;
-
-			case "iso-2":
-				version = LanguageVersion.CSharp2;
-				return true;
-
-			case "7":
-				version = LanguageVersion.CSharp7;
-				return true;
-
-			case "7.1":
-				version = LanguageVersion.CSharp7_1;
-				return true;
-
-			case "default":
-				version = LanguageVersion.Default;
-				return true;
-
-			case "latest":
-				version = LanguageVersion.Latest;
-				return true;
-
-			default:
-				// We are likely to introduce minor version numbers after C# 7, thus breaking the
-				// one-to-one correspondence between the integers and the corresponding
-				// LanguageVersion enum values. But for compatibility we continue to accept any
-				// integral value parsed by int.TryParse for its corresponding LanguageVersion enum
-				// value for language version C# 6 and earlier (e.g. leading zeros are allowed)
-				int versionNumber;
-				if (int.TryParse (str, NumberStyles.None, CultureInfo.InvariantCulture, out versionNumber) &&
-					//HACK: IsValid isn't accessible, do our own check here
-					//&& versionNumber <= 6 && ((LanguageVersion)versionNumber).IsValid ())
-					versionNumber > 0 && versionNumber <= 6)
-				{
-					version = (LanguageVersion)versionNumber;
-					return true;
-				}
-
-				version = LanguageVersion.Default;
-				return false;
 			}
 		}
 

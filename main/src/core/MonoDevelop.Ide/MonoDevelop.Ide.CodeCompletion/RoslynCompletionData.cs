@@ -40,11 +40,14 @@ using MonoDevelop.Ide;
 using MonoDevelop.Ide.Gui;
 using Microsoft.VisualStudio.Platform;
 using Microsoft.VisualStudio.Text;
+using Microsoft.CodeAnalysis.Editor.Shared.Extensions;
+using Microsoft.CodeAnalysis.Shared.Extensions;
 using MonoDevelop.Ide.CodeTemplates;
 using System.Linq;
 using System.Text;
 using MonoDevelop.Ide.Editor.Highlighting;
 using MonoDevelop.Ide.Fonts;
+using Microsoft.CodeAnalysis.Editor;
 
 namespace MonoDevelop.Ide.CodeCompletion
 {
@@ -82,27 +85,26 @@ namespace MonoDevelop.Ide.CodeCompletion
 		protected abstract string MimeType { get; }
 
 		public override IconId Icon {
-			get {
-				if (CompletionItem.Tags.Contains ("Snippet")) {
-					var template = CodeTemplateService.GetCodeTemplates (MimeType).FirstOrDefault (t => t.Shortcut == CompletionItem.DisplayText);
-					if (template != null)
-						return template.Icon;
-				}
-				var modifier = GetItemModifier ();
-				var type = GetItemType ();
-				var hash = CalculateHashCode (modifier, type);
-				if (!IconIdCache.ContainsKey (hash))
-					IconIdCache [hash] = "md-" + modifier + type;
-				return IconIdCache [hash];
-			}
+			get => GetIcon (CompletionItem, MimeType);
 		}
 
-		internal static int CalculateHashCode (string modifier, string type)
+
+		internal static string GetIcon (CompletionItem completionItem, string mimeType)
 		{
-			return modifier.GetHashCode () ^ type.GetHashCode ();
+			if (completionItem.Tags.Contains ("Snippet")) {
+				var template = CodeTemplateService.GetCodeTemplates (mimeType).FirstOrDefault (t => t.Shortcut == completionItem.DisplayText);
+				if (template != null)
+					return template.Icon;
+			}
+			var modifier = GetItemModifier (completionItem);
+			var type = GetItemType (completionItem);
+			var hash = modifier | type << 16;
+			if (!IconIdCache.ContainsKey (hash))
+				IconIdCache [hash] = "md-" + modifierType [modifier] + completionType [type];
+			return IconIdCache [hash];
 		}
 
-		static Dictionary<int, string> IconIdCache = new Dictionary<int, string>();
+		static Dictionary<int, string> IconIdCache = new Dictionary<int, string> ();
 
 		public RoslynCompletionData (Microsoft.CodeAnalysis.Document document, ITextSnapshot triggerSnapshot, CompletionService completionService, CompletionItem completionItem)
 		{
@@ -126,80 +128,109 @@ namespace MonoDevelop.Ide.CodeCompletion
 			return null;
 		}
 
-		internal static Dictionary<string, string> roslynCompletionTypeTable = new Dictionary<string, string> {
-			{ "Field", "field" },
-			{ "Alias", "field" },
-			{ "ArrayType", "field" },
-			{ "Assembly", "field" },
-			{ "DynamicType", "field" },
-			{ "ErrorType", "field" },
-			{ "Label", "field" },
-			{ "NetModule", "field" },
-			{ "PointerType", "field" },
-			{ "RangeVariable", "field" },
-			{ "TypeParameter", "field" },
-			{ "Preprocessing", "field" },
-
-			{ "Constant", "literal" },
-
-			{ "Parameter", "variable" },
-			{ "Local", "variable" },
-
-			{ "Method", "method" },
-
-			{ "Namespace", "name-space" },
-
-			{ "Property", "property" },
-
-			{ "Event", "event" },
-
-			{ "Class", "class" },
-
-			{ "Delegate", "delegate" },
-
-			{ "Enum", "enum" },
-
-			{ "Interface", "interface" },
-
-			{ "Struct", "struct" },
-			{ "Structure", "struct" },
-
-			{ "Keyword", "keyword" },
-
-			{ "Snippet", "template"},
-
-			{ "EnumMember", "literal" },
-
-			{ "NewMethod", "newmethod" },
-
-			{ "ExtensionMethod", "extensionmethod" }
+		readonly static string [] completionType = {
+			"field",
+			"literal",
+			"variable",
+			"method",
+			"name-space",
+			"property",
+			"event",
+			"class",
+			"delegate",
+			"enum",
+			"interface",
+			"struct",
+			"keyword",
+			"template",
+			"newmethod",
+			"extensionmethod"
 		};
 
-		string GetItemType ()
+		readonly static Dictionary<string, int> roslynCompletionTypeTable = new Dictionary<string, int> {
+			{ "Field", 0 },
+			{ "Alias", 0 },
+			{ "ArrayType", 0 },
+			{ "Assembly", 0 },
+			{ "DynamicType", 0 },
+			{ "ErrorType", 0 },
+			{ "Label", 0 },
+			{ "NetModule", 0 },
+			{ "PointerType", 0 },
+			{ "RangeVariable", 0 },
+			{ "TypeParameter", 0 },
+			{ "Preprocessing", 0 },
+
+			{ "Constant", 1 },
+			{ "EnumMember", 1 },
+
+			{ "Parameter", 2 },
+			{ "Local", 2 },
+
+			{ "Method", 3 },
+
+			{ "Namespace", 4 },
+
+			{ "Property", 5 },
+
+			{ "Event", 6 },
+
+			{ "Class", 7 },
+
+			{ "Delegate", 8 },
+
+			{ "Enum", 9 },
+
+			{ "Interface", 10 },
+
+			{ "Struct", 11 },
+			{ "Structure", 11 },
+
+			{ "Keyword", 12 },
+
+			{ "Snippet", 13},
+			{ "Intrinsic", 13},
+
+			{ "NewMethod", 14 },
+
+			{ "ExtensionMethod", 15 }
+		};
+
+		static int GetItemType (CompletionItem completionItem)
 		{
-			foreach (var tag in CompletionItem.Tags) {
-				if (roslynCompletionTypeTable.TryGetValue (tag, out string result))
+			foreach (var tag in completionItem.Tags) {
+				if (roslynCompletionTypeTable.TryGetValue (tag, out int result))
 					return result;
 			}
-			LoggingService.LogWarning ("RoslynCompletionData: Can't find item type '" + string.Join (",", CompletionItem.Tags) + "'");
-			return "literal";
+			LoggingService.LogWarning ("RoslynCompletionData: Can't find item type '" + string.Join (",", completionItem.Tags) + "'");
+			return 1;
 		}
 
-		internal static Dictionary<string, string> modifierTypeTable = new Dictionary<string, string> {
-			{ "Private", "private-" },
-			{ "ProtectedAndInternal", "ProtectedOrInternal-" },
-			{ "Protected", "protected-" },
-			{ "Internal", "internal-" },
-			{ "ProtectedOrInternal", "ProtectedOrInternal-" }
+		readonly static string [] modifierType = {
+			"",
+			"private-",
+			"ProtectedOrInternal-",
+			"protected-",
+			"internal-",
+			"ProtectedOrInternal-"
 		};
 
-		string GetItemModifier ()
+
+		readonly static Dictionary<string, int> modifierTypeTable = new Dictionary<string, int> {
+			{ "Private", 1 },
+			{ "ProtectedAndInternal", 2 },
+			{ "Protected", 3 },
+			{ "Internal", 4 },
+			{ "ProtectedOrInternal", 5 }
+		};
+
+		static int GetItemModifier (CompletionItem completionItem)
 		{
-			foreach (var tag in CompletionItem.Tags) {
-				if (modifierTypeTable.TryGetValue (tag, out string result))
+			foreach (var tag in completionItem.Tags) {
+				if (modifierTypeTable.TryGetValue (tag, out int result))
 					return result;
 			}
-			return "";
+			return 0;
 		}
 
 		public override DisplayFlags DisplayFlags {
@@ -222,6 +253,11 @@ namespace MonoDevelop.Ide.CodeCompletion
 				base.InsertCompletionText (window, ref ka, descriptor);
 				return;
 			}
+			InsertCompletionText (editor, document, ref ka, descriptor);
+		}
+
+		internal void InsertCompletionText (TextEditor editor, DocumentContext context, ref KeyActions ka, KeyDescriptor descriptor)
+		{
 			var completionChange = Provider.GetChangeAsync (doc, CompletionItem, null, default (CancellationToken)).WaitAndGetResult (default (CancellationToken));
 
 			var currentBuffer = editor.GetPlatformTextBuffer ();
@@ -230,30 +266,57 @@ namespace MonoDevelop.Ide.CodeCompletion
 			var mappedSpan = triggerSnapshotSpan.TranslateTo (currentBuffer.CurrentSnapshot, SpanTrackingMode.EdgeInclusive);
 			using (var undo = editor.OpenUndoGroup ()) {
 				// Work around for https://github.com/dotnet/roslyn/issues/22885
-				if (editor.GetCharAt (mappedSpan.Start) == '@') {
+				if (mappedSpan.Start < editor.Length && editor.GetCharAt (mappedSpan.Start) == '@') {
 					editor.ReplaceText (mappedSpan.Start + 1, mappedSpan.Length - 1, completionChange.TextChange.NewText);
 				} else
 					editor.ReplaceText (mappedSpan.Start, mappedSpan.Length, completionChange.TextChange.NewText);
-			
+
 
 				if (completionChange.NewPosition.HasValue)
 					editor.CaretOffset = completionChange.NewPosition.Value;
 
 				if (CompletionItem.Rules.FormatOnCommit) {
-					var endOffset = mappedSpan.Start.Position + completionChange.TextChange.NewText.Length;
-					Format (editor, document, mappedSpan.Start, endOffset);
+					var spanToFormat = triggerSnapshotSpan.TranslateTo (currentBuffer.CurrentSnapshot, SpanTrackingMode.EdgeInclusive);
+					var formattingService = context.AnalysisDocument.GetLanguageService<IEditorFormattingService> ();
+
+					if (formattingService != null) {
+						var changes = formattingService.GetFormattingChangesAsync (context.AnalysisDocument, spanToFormat.Span.ToTextSpan (), CancellationToken.None).WaitAndGetResult (CancellationToken.None);
+						editor.ApplyTextChanges (changes);
+					}
 				}
 			}
 		}
 
-		protected abstract void Format (TextEditor editor, Gui.Document document, int start, int end);
+		protected virtual void Format (TextEditor editor, DocumentContext document, int start, int end)
+		{}
 
-		public override async Task<TooltipInformation> CreateTooltipInformation (bool smartWrap, CancellationToken cancelToken)
+		[Obsolete("Use Format (TextEditor editor, DocumentContext document, int start, int end)")]
+		protected virtual void Format (TextEditor editor, Gui.Document document, int start, int end)
 		{
-			var description = await completionService.GetDescriptionAsync (doc, CompletionItem);
-			var markup = new StringBuilder ();
-			var theme = DefaultSourceEditorOptions.Instance.GetEditorTheme ();
+		}
+
+		public override Task<TooltipInformation> CreateTooltipInformation (bool smartWrap, CancellationToken cancelToken)
+		{
+			return CreateTooltipInformation (doc, CompletionItem, smartWrap, cancelToken);
+		}
+
+		internal static async Task<TooltipInformation> CreateTooltipInformation (Microsoft.CodeAnalysis.Document doc, CompletionItem CompletionItem, bool smartWrap, CancellationToken cancelToken)
+		{
+			CompletionDescription description;
+			var completionService = doc.Project.Solution.Workspace.Services.GetLanguageServices (doc.Project.Language).GetService<CompletionService> ();
+			if (completionService == null)
+				return null;
+			if (CommonCompletionItem.HasDescription (CompletionItem)) {
+				description = CommonCompletionItem.GetDescription (CompletionItem);
+			} else {
+				description = await Task.Run (() => completionService.GetDescriptionAsync (doc, CompletionItem)).ConfigureAwait (false);
+			}
+			var markup = StringBuilderCache.Allocate ();
+			var theme = SyntaxHighlightingService.GetIdeFittingTheme (DefaultSourceEditorOptions.Instance.GetEditorTheme ());
 			var taggedParts = description.TaggedParts;
+			if (taggedParts.Length == 0) {
+				return null;
+			}
 			int i = 0;
 			while (i < taggedParts.Length) {
 				if (taggedParts [i].Tag == "LineBreak")
@@ -271,9 +334,27 @@ namespace MonoDevelop.Ide.CodeCompletion
 				markup.Append ("</span>");
 			}
 			return new TooltipInformation {
-				SignatureMarkup = markup.ToString ()
+				SignatureMarkup = StringBuilderCache.ReturnAndFree (markup)
 			};
 		}
-	}
 
+		public override bool IsCommitCharacter (char keyChar, string partialWord)
+		{
+			foreach (var rule in CompletionItem.Rules.CommitCharacterRules) {
+				switch (rule.Kind) {
+				case CharacterSetModificationKind.Add:
+					if (rule.Characters.Contains (keyChar))
+						return true;
+					continue;
+				case CharacterSetModificationKind.Remove:
+					if (rule.Characters.Contains (keyChar))
+						return false;
+					continue;
+				case CharacterSetModificationKind.Replace:
+					return rule.Characters.Contains (keyChar);
+				}
+			}
+			return base.IsCommitCharacter (keyChar, partialWord);
+		}
+	}
 }

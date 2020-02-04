@@ -10,6 +10,7 @@ using System.IO.Compression;
 using System.Threading.Tasks;
 using System.Threading;
 using MonoDevelop.Core.Text;
+using Microsoft.CodeAnalysis.Execution;
 
 namespace MonoDevelop.Ide.Editor.Highlighting
 {
@@ -30,7 +31,7 @@ namespace MonoDevelop.Ide.Editor.Highlighting
 
 		public SyntaxHighlighting (SyntaxHighlightingDefinition definition, IReadonlyTextDocument document)
 		{
-			this.definition = definition;
+			this.definition = definition ?? throw new ArgumentNullException (nameof (definition));
 			Document = document;
 			if (document is ITextDocument)
 				((ITextDocument)document).TextChanged += Handle_TextChanged;
@@ -127,9 +128,14 @@ namespace MonoDevelop.Ide.Editor.Highlighting
 
 			public static HighlightState CreateNewState (SyntaxHighlighting highlighting)
 			{
+				if (highlighting == null)
+					throw new ArgumentNullException (nameof (highlighting));
+				var definition = highlighting.definition;
+				if (definition == null)
+					throw new NullReferenceException ("HighlightState.CreateNewState null reference exception highlighting.definition == null.");
 				return new HighlightState {
-					ContextStack = ImmutableStack<SyntaxContext>.Empty.Push (highlighting.definition.MainContext),
-					ScopeStack = new ScopeStack (highlighting.definition.Scope),
+					ContextStack = ImmutableStack<SyntaxContext>.Empty.Push (definition.MainContext),
+					ScopeStack = new ScopeStack (definition.Scope),
 					MatchStack = ImmutableStack<SyntaxMatch>.Empty
 				};
 			}
@@ -178,7 +184,6 @@ namespace MonoDevelop.Ide.Editor.Highlighting
 				if (ContextStack.IsEmpty)
 					return Task.FromResult (new HighlightedLine (new TextSegment (startOffset, length), new [] { new ColoredSegment (0, length, ScopeStack.Empty) }));
 				SyntaxContext currentContext = null;
-				List<SyntaxContext> lastContexts = new List<SyntaxContext> ();
 				Match match = null;
 				SyntaxMatch curMatch = null;
 				var segments = new List<ColoredSegment> ();
@@ -188,24 +193,13 @@ namespace MonoDevelop.Ide.Editor.Highlighting
 				int lastMatch = -1;
 				var highlightedSegment = new TextSegment (startOffset, length);
 				string lineText = text.GetTextAt (startOffset, length);
-
+				var initialState = state.Clone ();
 				int timeoutOccursAt;
 				unchecked {
 					timeoutOccursAt = Environment.TickCount + (int)matchTimeout.TotalMilliseconds;
 				}
 			restart:
-				if (lastMatch == offset) {
-					if (lastContexts.Contains (currentContext)) {
-						offset++;
-						length--;
-					} else {
-						lastContexts.Add (currentContext);
-					}
-				} else {
-					lastContexts.Clear ();
-					lastContexts.Add (currentContext);
-				}
-				if (length <= 0)
+				if (offset >= lineText.Length)
 					goto end;
 				lastMatch = offset;
 				currentContext = ContextStack.Peek ();
@@ -218,7 +212,12 @@ namespace MonoDevelop.Ide.Editor.Highlighting
 					if (r == null)
 						continue;
 					try {
-						var possibleMatch = r.Match (lineText, offset, length, matchTimeout);
+						Match possibleMatch;
+						if (r.pattern == "(?<=\\})" && offset > 0) { // HACK to fix typescript highlighting.
+							possibleMatch = r.Match (lineText, offset - 1, length, matchTimeout);
+						} else {
+							possibleMatch = r.Match (lineText, offset, length, matchTimeout);
+						}
 						if (possibleMatch.Success) {
 							if (match == null || possibleMatch.Index < match.Index) {
 								match = possibleMatch;
@@ -236,8 +235,12 @@ namespace MonoDevelop.Ide.Editor.Highlighting
 						continue;
 					}
 				}
+				if (length <= 0 && curMatch == null)
+					goto end;
+
 				if (Environment.TickCount >= timeoutOccursAt) {
-					curMatch.GotTimeout = true;
+					if (curMatch != null)
+						curMatch.GotTimeout = true;
 					goto end;
 				}
 
@@ -330,7 +333,9 @@ namespace MonoDevelop.Ide.Editor.Highlighting
 					segments.Add (new ColoredSegment (curSegmentOffset, endOffset - curSegmentOffset, ScopeStack));
 				}
 
-				return Task.FromResult (new HighlightedLine (highlightedSegment, segments));
+				return Task.FromResult (new HighlightedLine (highlightedSegment, segments) {
+					IsContinuedBeyondLineEnd = !initialState.Equals (state)
+				});
 			}
 
 			void PushStack (SyntaxMatch curMatch, IEnumerable<SyntaxContext> nextContexts)

@@ -55,6 +55,8 @@ namespace MonoDevelop.UnitTesting
 
 		public virtual bool CanMergeWithParent => false;
 
+		public string ErrorMessage { get; protected set; }
+
 		public string FixtureTypeNamespace {
 			get;
 			set;
@@ -194,9 +196,11 @@ namespace MonoDevelop.UnitTesting
 		public TestStatus Status {
 			get { return status; }
 			set {
+				if (status == value)
+					return;
+
 				status = value;
 				OnTestStatusChanged ();
-				(Parent as UnitTestGroup)?.UpdateStatusFromChildren ();
 			}
 		}
 
@@ -310,8 +314,6 @@ namespace MonoDevelop.UnitTesting
 			return true;
 		}
 
-		bool building;
-
 		/// <summary>
 		/// Builds the project that contains this unit test or group of unit tests.
 		/// It returns when the project has been built and the tests have been updated. 
@@ -417,6 +419,9 @@ namespace MonoDevelop.UnitTesting
 		
 		protected virtual void OnTestStatusChanged ()
 		{
+			if (parent is UnitTestGroup) {
+				parent.OnTestStatusChanged ();
+			}
 			Gtk.Application.Invoke ((o, args) => {
 				// Run asynchronously in the UI thread
 				if (TestStatusChanged != null)

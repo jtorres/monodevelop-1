@@ -57,6 +57,8 @@ namespace MonoDevelop.Components
 			//IdeApp.Preferences.UserInterfaceTheme.Changed += (sender, e) => UpdateGtkTheme ();
 		}
 
+		internal static bool AccessibilityEnabled { get; private set; }
+
 		internal static void InitializeGtk (string progname, ref string[] args)
 		{
 			if (Gtk.Settings.Default != null)
@@ -67,19 +69,34 @@ namespace MonoDevelop.Components
 			if (!Platform.IsLinux)
 				UpdateGtkTheme ();
 
-			if (Platform.IsMac) {
+#if MAC
+			// Early init Cocoa through xwt
+			var path = Path.GetDirectoryName (typeof (IdeTheme).Assembly.Location);
+			System.Reflection.Assembly.LoadFrom (Path.Combine (path, "Xwt.XamMac.dll"));
+			var loaded = Xwt.Toolkit.Load (Xwt.ToolkitType.XamMac);
+
+			var disableA11y = Environment.GetEnvironmentVariable ("DISABLE_ATKCOCOA");
+			if (Platform.IsMac && (NSUserDefaults.StandardUserDefaults.BoolForKey ("com.monodevelop.AccessibilityEnabled") && string.IsNullOrEmpty (disableA11y))) {
 				// Load a private version of AtkCocoa stored in the XS app directory
 				var appDir = Directory.GetParent (AppDomain.CurrentDomain.BaseDirectory);
 				var gtkPath = $"{appDir.Parent.FullName}/lib/gtk-2.0";
 
 				LoggingService.LogInfo ($"Loading modules from {gtkPath}");
 				Environment.SetEnvironmentVariable ("GTK_MODULES", $"{gtkPath}/libatkcocoa.so");
+				AccessibilityEnabled = true;
+			} else {
+				// If we are restarted from a running instance when changing the accessibility setting then
+				// we inherit the environment from it
+				Environment.SetEnvironmentVariable ("GTK_MODULES", null);
+				LoggingService.LogInfo ("Accessibility disabled");
+				AccessibilityEnabled = false;
 			}
-
+#endif
 			Gtk.Application.Init (BrandingService.ApplicationName, ref args);
 
 			// Reset our environment after initialization on Mac
 			if (Platform.IsMac) {
+				Environment.SetEnvironmentVariable ("GTK_MODULES", null);
 				Environment.SetEnvironmentVariable ("GTK2_RC_FILES", DefaultGtk2RcFiles);
 			}
 		}
@@ -316,6 +333,15 @@ namespace MonoDevelop.Components
 #if MAC
 		static Dictionary<NSWindow, NSObject> nsWindows = new Dictionary<NSWindow, NSObject> ();
 
+		internal static NSAppearance GetAppearance ()
+		{
+			return IdeApp.Preferences.UserInterfaceTheme == Theme.Light
+				? NSAppearance.GetAppearance (NSAppearance.NameAqua)
+				: MacSystemInformation.OsVersion < MacSystemInformation.Mojave
+					? NSAppearance.GetAppearance (NSAppearance.NameVibrantDark)
+					: NSAppearance.GetAppearance (new NSString ("NSAppearanceNameDarkAqua"));
+		}
+
 		public static void ApplyTheme (NSWindow window)
 		{
 			if (!nsWindows.ContainsKey(window)) {
@@ -326,10 +352,7 @@ namespace MonoDevelop.Components
 
 		static void SetTheme (NSWindow window)
 		{
-			if (IdeApp.Preferences.UserInterfaceTheme == Theme.Light)
-				window.Appearance = NSAppearance.GetAppearance (NSAppearance.NameAqua);
-			else
-				window.Appearance = NSAppearance.GetAppearance (NSAppearance.NameVibrantDark);
+			window.Appearance = GetAppearance ();
 
 			if (IdeApp.Preferences.UserInterfaceTheme == Theme.Light) {
 				window.StyleMask &= ~NSWindowStyle.TexturedBackground;
@@ -359,8 +382,13 @@ namespace MonoDevelop.Components
 		static void OnClose (NSNotification note)
 		{
 			var w = (NSWindow)note.Object;
-			NSNotificationCenter.DefaultCenter.RemoveObserver(nsWindows[w]);
+			if (MacSystemInformation.OsVersion < MacSystemInformation.HighSierra)
+				// Since HighSierra observers don't need to be removed manually, doing so
+				// after a window has been released might even lead to a native crash
+				// see: https://developer.apple.com/library/archive/releasenotes/Foundation/RN-Foundation/index.html#10_11NotificationCenter
+				NSNotificationCenter.DefaultCenter.RemoveObserver(nsWindows[w]);
 			nsWindows.Remove (w);
+
 		}
 
 		static void UpdateMacWindows ()

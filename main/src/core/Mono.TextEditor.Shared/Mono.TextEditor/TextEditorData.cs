@@ -25,20 +25,19 @@
 
 using System;
 using System.Collections.Generic;
-using System.Text;
-using Gtk;
 using System.IO;
-using System.Diagnostics;
-using Mono.TextEditor.Highlighting;
-using Xwt.Drawing;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Gtk;
+using MonoDevelop.Core;
 using MonoDevelop.Core.Text;
+using MonoDevelop.Ide;
 using MonoDevelop.Ide.Editor;
 using MonoDevelop.Ide.Editor.Extension;
 using MonoDevelop.Ide.Editor.Highlighting;
-using System.Threading;
-using MonoDevelop.Ide;
-using System.Linq;
-using System.Threading.Tasks;
+using Xwt.Drawing;
 
 namespace Mono.TextEditor
 {
@@ -78,7 +77,8 @@ namespace Mono.TextEditor
 			set {
 				var oldMode = currentMode;
 				currentMode = value;
-				currentMode.AddedToEditor (this);
+				if (currentMode != null)
+					currentMode.AddedToEditor (this);
 				if (oldMode != null)
 					oldMode.RemovedFromEditor (this);
 				OnEditModeChanged (new EditModeChangedEventArgs (oldMode, currentMode));
@@ -205,12 +205,13 @@ namespace Mono.TextEditor
 		{
 			LineHeight = 16;
 
-			caret = new CaretImpl (this);
-			caret.PositionChanged += CaretPositionChanged;
-
 			options = TextEditorOptions.DefaultOptions;
 			document = doc;
 			AttachDocument ();
+
+			caret = new CaretImpl (this);
+			caret.PositionChanged += CaretPositionChanged;
+
 			SearchEngine = new BasicSearchEngine ();
 
 			HeightTree = new HeightTree (this);
@@ -352,7 +353,7 @@ namespace Mono.TextEditor
 		{
 			if (str == null)
 				throw new ArgumentNullException ("str");
-			var result = new StringBuilder ();
+			var result = StringBuilderCache.Allocate ();
 			foreach (char ch in str) {
 				switch (ch) {
 				case '&':
@@ -376,7 +377,7 @@ namespace Mono.TextEditor
 					break;
 				}
 			}
-			return result.ToString ();
+			return StringBuilderCache.ReturnAndFree (result);
 		}
 
 		internal static int CalcIndentLength (string indent)
@@ -412,11 +413,12 @@ namespace Mono.TextEditor
 
 		public string GetMarkup (int offset, int length, bool removeIndent, bool useColors = true, bool replaceTabs = true, bool fitIdeStyle = false)
 		{
-			var mode = Document.SyntaxMode;
-			var style = fitIdeStyle ? SyntaxHighlightingService.GetEditorTheme(Parent.GetIdeColorStyleName()) : ColorStyle;
+			var doc = Document;
+			var mode = doc.SyntaxMode;
+			var style = fitIdeStyle ? SyntaxHighlightingService.GetEditorTheme (Parent.GetIdeColorStyleName ()) : ColorStyle;
 
 			if (style == null) {
-				var str = Document.GetTextAt (offset, length);
+				var str = doc.GetTextAt (offset, length);
 				if (removeIndent)
 					str = str.TrimStart (' ', '\t');
 				return ConvertToPangoMarkup (str, replaceTabs);
@@ -424,13 +426,13 @@ namespace Mono.TextEditor
 			int indentLength = -1;
 			int curOffset = offset;
 
-			StringBuilder result = new StringBuilder ();
-			while (curOffset < offset + length && curOffset < Document.Length) {
-				DocumentLine line = Document.GetLineByOffset (curOffset);
+			StringBuilder result = StringBuilderCache.Allocate ();
+			while (curOffset < offset + length && curOffset < doc.Length) {
+				DocumentLine line = doc.GetLineByOffset (curOffset);
 				int toOffset = System.Math.Min (line.Offset + line.Length, offset + length);
 				var styleStack = new Stack<MonoDevelop.Ide.Editor.Highlighting.ChunkStyle> ();
 				if (removeIndent) {
-					var indentString = line.GetIndentation (Document);
+					var indentString = line.GetIndentation (doc);
 					var curIndent = CalcIndentLength (indentString);
 					if (indentLength < 0) {
 						indentLength = curIndent;
@@ -470,7 +472,7 @@ namespace Mono.TextEditor
 						result.Append (">");
 						styleStack.Push (chunkStyle);
 					}
-					result.Append (ConvertToPangoMarkup (Document.GetTextBetween (chunk.Offset, System.Math.Min (chunk.EndOffset, Document.Length)), replaceTabs));
+					result.Append (ConvertToPangoMarkup (doc.GetTextBetween (chunk.Offset, System.Math.Min (chunk.EndOffset, doc.Length)), replaceTabs));
 				}
 				while (styleStack.Count > 0) {
 					result.Append ("</span>");
@@ -481,7 +483,7 @@ namespace Mono.TextEditor
 				if (result.Length > 0 && curOffset < offset + length)
 					result.AppendLine ();
 			}
-			return result.ToString ();
+			return StringBuilderCache.ReturnAndFree (result);
 		}
 
 		internal async Task<IEnumerable<MonoDevelop.Ide.Editor.Highlighting.ColoredSegment>> GetChunks (DocumentLine line, int offset, int length)
@@ -518,7 +520,7 @@ namespace Mono.TextEditor
 		{
 			if (string.IsNullOrEmpty (str))
 				return "";
-			StringBuilder sb = new StringBuilder ();
+			StringBuilder sb = StringBuilderCache.Allocate ();
 			bool convertTabs = TabsToSpaces;
 			var tabSize = Options.TabSize;
 			for (int i = 0; i < str.Length; i++) {
@@ -549,7 +551,7 @@ namespace Mono.TextEditor
 					break;
 				}
 			}
-			return sb.ToString ();
+			return StringBuilderCache.ReturnAndFree (sb);
 		}
 		
 		public string FormatString (int offset, string str)
@@ -646,20 +648,24 @@ namespace Mono.TextEditor
 		/// </summary>
 		public void FixVirtualIndentation ()
 		{
-			if (!HasIndentationTracker || Options.IndentStyle != IndentStyle.Virtual)
-				return;
-			var line = Document.GetLine (Caret.Line);
-			if (line != null && line.Length > 0 && GetIndentationString (caret.Line - 1, int.MaxValue) == Document.GetTextAt (line.Offset, line.Length))
-				Remove (line.Offset, line.Length);
+			FixVirtualIndentation (Caret.Line);
 		}
+
+		public bool LockFixIndentation { get; set; }
 
 		public void FixVirtualIndentation (int lineNumber)
 		{
-			if (!HasIndentationTracker || Options.IndentStyle != IndentStyle.Virtual)
+			if (!HasIndentationTracker || Options.IndentStyle != IndentStyle.Virtual || LockFixIndentation || (IndentationTracker.SupportedFeatures & IndentationTrackerFeatures.SkipFixVirtualIndentation) != 0)
 				return;
 			var line = Document.GetLine (lineNumber);
-			if (line != null && line.Length > 0 && GetIndentationString (lineNumber, line.Length + 1) == Document.GetTextAt (line.Offset, line.Length))
+			if (line == null || line.Length == 0)
+				return;
+			var indentString = GetIndentationString (lineNumber, line.Length + 1);
+			if (indentString.Length != line.Length)
+				return;
+			if (indentString == Document.GetTextAt (line.Offset, line.Length)) {
 				Remove (line.Offset, line.Length);
+			}
 		}
 
 		void CaretPositionChanged (object sender, DocumentLocationEventArgs args)
@@ -1420,7 +1426,7 @@ namespace Mono.TextEditor
 				try {
 					newText = TextPasteHandler.FormatPlainText (offset, text, copyData);
 				} catch (Exception e) {
-					Console.WriteLine ("Text paste handler exception:" + e);
+					LoggingService.LogError ("Text paste handler exception", e);
 					newText = text;
 				}
 				if (newText != text) {

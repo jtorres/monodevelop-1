@@ -185,6 +185,12 @@ namespace MonoDevelop.Ide.Desktop
 			return OnGetFiles ();
 		}
 
+		public RecentFile MostRecentlyUsedProject {
+			get {
+				return OnGetProjects ().FirstOrDefault ();
+			}
+		}
+
 		public abstract event EventHandler Changed;
 		public abstract void ClearProjects ();
 		public abstract void ClearFiles ();
@@ -209,8 +215,10 @@ namespace MonoDevelop.Ide.Desktop
 		{
 			if (favorite)
 				favoriteFiles.Add (file);
-			else
-				favoriteFiles.Remove (file);
+			else if (!favoriteFiles.Remove (file)) {
+				// Nothing has changed - no need to save the properties.
+				return;
+			}
 
 			PropertyService.Set (FavoritesConfigKey, favoriteFiles);
 			PropertyService.SaveProperties ();

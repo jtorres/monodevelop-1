@@ -1,6 +1,6 @@
 include $(top_srcdir)/xbuild.include
 
-SUBDIRS = external . contrib src po man theme-icons build tests
+SUBDIRS = external . src po man theme-icons msbuild build tests
 
 MD_CONFIGURE=$(top_srcdir)/../scripts/configure.sh
 
@@ -140,6 +140,9 @@ run-leaks: $(PROGRAM)
 		&& echo '\033[0m'; \
 	fi
 
+run-no-accessibility: $(PROGRAM)
+	DISABLE_ATKCOCOA=yes LANG= LC_ALL= $(MD_LAUNCH_SETUP) $(MD_LAUNCH_EXTRA_ENV) $(MD_BIN_PATH)/MonoDevelop --no-redirect
+
 run-64: run-sgen-64
 
 run-boehm: runmd
@@ -187,8 +190,14 @@ check-addins:
 test:
 	cd tests && $(MAKE) test assembly=$(assembly)
 
+deploy-tests:
+	cd tests && $(MAKE) deploy-tests
+
 uitest:
 	cd tests && $(MAKE) uitest assembly=$(assembly) categories=$(categories) tests=$(tests)
+
+performance-tests:
+	cd tests && $(MAKE) performance-tests
 
 coverage:
 	cd tests && $(MAKE) coverage
@@ -204,8 +213,7 @@ app-dir: all
 # we can't use the variables that are conditionally defined
 EXTRA_DIST = $(bin_SCRIPTS) $(desktop_DATA) $(appdata_DATA) $(pixmap_DATA) \
 	monodevelop.xml $(pkgconfig_in_files) external/Makefile.in \
-	Main.sln \
-	md.targets
+	Main.sln MonoDevelop.props Directory.Build.props
 
 DISTCLEANFILES = monodevelop intltool-extract intltool-merge intltool-update \
 	$(pkgconfig_DATA)

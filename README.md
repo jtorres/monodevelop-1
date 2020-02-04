@@ -1,5 +1,8 @@
 **MonoDevelop** is a full-featured integrated development environment (IDE) for mono using Gtk#.
 
+The MonoDevelop core is also the foundation for Visual Studio for Mac.  
+Feel free to file bugs against Visual Studio for Mac here as well.
+
 See http://www.monodevelop.com for more info.  
 
 [![Build Status](http://jenkins.mono-project.com/job/test-monodevelop-mainline/badge/icon)](http://jenkins.mono-project.com/job/test-monodevelop-mainline/)
@@ -20,7 +23,7 @@ Compiling
 ---------
 
 If you are building from Git, make sure that you initialize the submodules
-that are part of this repository by executing:
+that are part of this repository by executing:  
 `git submodule update --init --recursive`
 
 If you are running a parallel mono installation, make sure to run all the following steps
@@ -53,6 +56,13 @@ Running
 
 You can run MonoDevelop from the build directory by executing:
 `make run`
+
+Debugging
+---------
+
+You can debug MonoDevelop using Visual Studio (on Windows or macOS) with the
+`main/Main.sln` solution. Use the `DebugWin32` configuration on Windows and the
+`DebugMac` configuration on macOS.
 
 Installing *(Optional)*
 ----------
@@ -115,10 +125,6 @@ https://developer.gnome.org/hig/stable/
 **freedesktop.org standards**
 
 http://freedesktop.org/Standards/
-
-**Integrating with GNOME** *(a little out of date)*
-
-http://developers.sun.com/solaris/articles/integrating_gnome.html
 
 **Bugzilla**
 

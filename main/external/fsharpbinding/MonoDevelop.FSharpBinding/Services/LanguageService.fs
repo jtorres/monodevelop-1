@@ -43,22 +43,6 @@ module ServiceSettings =
 /// Provides default empty/negative results if information is missing.
 type ParseAndCheckResults (infoOpt : FSharpCheckFileResults option, parseResults : FSharpParseFileResults option) =
 
-    /// Get declarations at the current location in the specified document and the long ident residue
-    /// e.g. The incomplete ident One.Two.Th will return Th
-    member x.GetDeclarations(line, col, lineStr) =
-        match infoOpt, parseResults with
-        | Some (checkResults), parseResults ->
-            let longName,residue = Parsing.findLongIdentsAndResidue(col, lineStr)
-            LoggingService.logDebug "GetDeclarations: '%A', '%s'" longName residue
-            // Get items & generate output
-            try
-                let partialName = QuickParse.GetPartialLongNameEx(lineStr, col-1)
-                let results =
-                    Async.RunSynchronously(checkResults.GetDeclarationListInfo(parseResults, line, lineStr, partialName, fun () -> []), timeout = ServiceSettings.blockingTimeout )
-                Some (results, residue)
-            with :? TimeoutException -> None
-        | None, _ -> None
-
     /// Get the symbols for declarations at the current location in the specified document and the long ident residue
     /// e.g. The incomplete ident One.Two.Th will return Th
     member x.GetDeclarationSymbols(line, col, lineStr) =
@@ -240,7 +224,7 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
                     with exn ->
                         LoggingService.LogDebug(sprintf "LanguageService: Error", exn)
                     | None -> () }
-        Async.Start computation
+        Async.StartAndLogException computation
 
     let loadingProjects = HashSet<string>()
 
@@ -288,13 +272,20 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
         //cache 50 project infos, then start evicting the least recently used entries
         ref (ExtCore.Caching.LruCache.create 50u)
 
-    let optionsForDependentProject p =
+    let optionsForDependentProject projectFile =
+        let project = x.GetProjectFromFileName projectFile
         async {
-            let! assemblies = x.GetReferencedAssembliesAsync p
-            return x.GetProjectCheckerOptions(p, [], assemblies)
+            let! assemblies = async {
+                match project with
+                | Some (proj:DotNetProject) -> return! proj.GetReferences(CompilerArguments.getConfig()) |> Async.AwaitTask
+                | None -> return new List<AssemblyReference> ()
+            }
+            return x.GetProjectCheckerOptions(projectFile, [], assemblies)
         }
 
     member x.Checker = checker
+
+    member x.HideStatusIcon = hideStatusIcon
 
     member x.ClearProjectInfoCache() =
         LoggingService.logDebug "LanguageService: Clearing ProjectInfoCache"
@@ -350,38 +341,22 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
         |> Seq.tryFind (fun p -> p.FileName.FullPath.ToString() = projectFile)
         |> Option.map(fun p -> p :?> DotNetProject)
 
-    member x.GetReferencedAssembliesSynchronously (project:DotNetProject) =
-        project.GetReferencedAssemblies(CompilerArguments.getConfig()).Result
+    member x.GetProjectOptionsFromProjectFile (project:DotNetProject) (config:ConfigurationSelector) (referencedAssemblies:AssemblyReference seq) =
 
-    member x.GetReferencedAssembliesAsync projectFile =
-        async {
-            let project = x.GetProjectFromFileName projectFile
-            match project with
-            | Some proj -> return! proj.GetReferencedAssemblies(CompilerArguments.getConfig()) |> Async.AwaitTask
-            | None -> return Seq.empty
-        }
-
-    member x.GetProjectOptionsFromProjectFile(project:DotNetProject, ?referencedAssemblies) =
-        let referencedAssemblies = defaultArg referencedAssemblies (x.GetReferencedAssembliesSynchronously project)
-        let config =
-            match IdeApp.Workspace with
-            | null -> ConfigurationSelector.Default
-            | ws ->
-               match ws.ActiveConfiguration with
-               | null -> ConfigurationSelector.Default
-               | config -> config
-
-        let getReferencedProjects (project:DotNetProject) =
+        // hack: we can't just pull the refs out of referencedAssemblies as we use this for referenced projects as well
+        let getReferencedFSharpProjects (project:DotNetProject) =
             project.GetReferencedAssemblyProjects config
             |> Seq.filter (fun p -> p <> project && p.SupportedLanguages |> Array.contains "F#")
 
         let rec getOptions referencedProject =
-            let projectOptions = CompilerArguments.getArgumentsFromProject referencedProject referencedAssemblies
+            // hack: we use the referencedAssemblies of the root project for the dependencies' options as well
+            // which is obviously wrong, but it doesn't seem to matter in this case
+            let projectOptions = CompilerArguments.getArgumentsFromProject referencedProject config referencedAssemblies
             match projectOptions with
             | Some projOptions ->
                 let referencedProjectOptions =
                     referencedProject
-                    |> getReferencedProjects
+                    |> getReferencedFSharpProjects
                     |> Seq.fold (fun acc reference ->
                                      match getOptions reference with
                                      | Some outFile, Some opts  -> (outFile, opts) :: acc
@@ -400,7 +375,16 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
 
     /// Constructs options for the interactive checker for a project under the given configuration.
     member x.GetProjectCheckerOptions(projFilename, ?properties, ?referencedAssemblies) : FSharpProjectOptions option =
-        let properties = defaultArg properties ["Configuration", IdeApp.Workspace.ActiveConfigurationId]
+        let config =
+            maybe {
+                let! ws = IdeApp.Workspace |> Option.ofObj
+                return! ws.ActiveConfiguration |> Option.ofObj
+            } |> Option.defaultValue ConfigurationSelector.Default
+        let configId =
+            match IdeApp.Workspace with
+            | null -> null
+            | ws -> ws.ActiveConfigurationId
+        let properties = defaultArg properties ["Configuration", configId]
         let key = (projFilename, properties)
 
         lock projectInfoCache (fun () ->
@@ -418,8 +402,11 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
                 match project with
                 | Some proj ->
                     let proj = proj :?> DotNetProject
-                    let referencedAssemblies = defaultArg referencedAssemblies (x.GetReferencedAssembliesSynchronously proj)
-                    let opts = x.GetProjectOptionsFromProjectFile (proj, referencedAssemblies)
+                    //fixme eliminate this .Result
+                    let asms = match referencedAssemblies with
+                               | Some a -> a
+                               | None -> (proj.GetReferences config).Result
+                    let opts = x.GetProjectOptionsFromProjectFile proj config asms
                     opts |> Option.bind(fun opts' ->
                         projectInfoCache := cache.Add (key, opts')
                         // Print contents of check option for debugging purposes
@@ -498,7 +485,7 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
                             return Some(result)
                         with
                         | :? System.TimeoutException ->
-                            LoggingService.logDebug "LanguageService: GetTypedParseResultWithTimeout: No stale results - typechecking with timeout - timeout exception occured"
+                            LoggingService.logDebug "LanguageService: GetTypedParseResultWithTimeout: No stale results - typechecking with timeout - timeout exception occurred"
                             return None
                     | None ->
                           LoggingService.logDebug "LanguageService: GetTypedParseResultWithTimeout: No stale results - typechecking without timeout"
@@ -557,6 +544,7 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
 
     /// Get all symbols derived from the specified symbol in the current project and optionally all dependent projects
     member x.GetDerivedSymbolsInProject(projectFilename, file, source, symbolAtCaret:FSharpSymbol, ?dependentProjects) =
+        LoggingService.logDebug "Finding derived symbols in %s : Symbol %s" projectFilename symbolAtCaret.DisplayName
         let predicate (symbolUse: FSharpSymbolUse) =
             try
                 match symbolAtCaret with
@@ -566,9 +554,9 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
                         let isOverrideOrDefault = mfv.IsOverrideOrExplicitInterfaceImplementation
                         let baseTypeMatch() =
                             maybe {
-                                let! ent = mfv.EnclosingEntity
+                                let! ent = mfv.DeclaringEntity
                                 let! bt = ent.BaseType
-                                let! carentEncEnt = caretmfv.EnclosingEntity
+                                let! carentEncEnt = caretmfv.DeclaringEntity
                                 return carentEncEnt.IsEffectivelySameAs bt.TypeDefinition }
 
                         let nameMatch = mfv.DisplayName = caretmfv.DisplayName
@@ -637,7 +625,7 @@ type LanguageService(dirtyNotify, _extraProjectInfo) as x =
 
         let isAnExtensionMethod (mfv:FSharpMemberOrFunctionOrValue) (parentEntity:FSharpSymbol) =
             let isExt = mfv.IsExtensionMember
-            let extslogicalEntity = mfv.LogicalEnclosingEntity
+            let extslogicalEntity = mfv.ApparentEnclosingEntity
             let sameLogicalParent = parentEntity.IsEffectivelySameAs extslogicalEntity
             isExt && sameLogicalParent
 

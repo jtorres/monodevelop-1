@@ -42,23 +42,56 @@ namespace MonoDevelop.Ide.Projects
 		{
 			FilePath projFile = Util.GetSampleProject ("DotNetCoreResources", "NetStandardProject", "NetStandardProject.csproj");
 
-			var p = (DotNetProject)await Services.ProjectService.ReadSolutionItem (Util.GetMonitor (), projFile);
-			var resxFile = p.Files.Single (f => f.FilePath.FileName == "Resources.resx");
+			using (var p = (DotNetProject)await Services.ProjectService.ReadSolutionItem (Util.GetMonitor (), projFile)) {
+				var resxFile = p.Files.Single (f => f.FilePath.FileName == "Resources.resx");
 
-			var newFolder = p.BaseDirectory.Combine ("NewFolder");
-			Directory.CreateDirectory (newFolder);
+				var newFolder = p.BaseDirectory.Combine ("NewFolder");
+				Directory.CreateDirectory (newFolder);
 
-			var resxFileTarget = newFolder.Combine ("Resources.resx");
+				var resxFileTarget = newFolder.Combine ("Resources.resx");
 
-			bool move = true;
-			ProjectOperations.TransferFilesInternal (Util.GetMonitor (), p, resxFile.FilePath, p, resxFileTarget, move, true);
+				bool move = true;
+				ProjectOperations.TransferFilesInternal (Util.GetMonitor (), p, resxFile.FilePath, p, resxFileTarget, move, true);
 
-			string expectedProjectXml = File.ReadAllText (p.FileName.ChangeName ("NetStandardProject-saved"));
-			await p.SaveAsync (Util.GetMonitor ());
+				string expectedProjectXml = File.ReadAllText (p.FileName.ChangeName ("NetStandardProject-saved"));
+				await p.SaveAsync (Util.GetMonitor ());
 
-			string projectXml = File.ReadAllText (p.FileName);
-			Assert.AreEqual (expectedProjectXml, projectXml);
-			p.Dispose ();
+				string projectXml = File.ReadAllText (p.FileName);
+				Assert.AreEqual (expectedProjectXml, projectXml);
+			}
+		}
+
+		[Test]
+		public async Task LoadDotNetCoreProjectWithProjectSdkAttribute()
+		{
+			FilePath projFile = Util.GetSampleProject ("DotNetCoreSdkFormat", "DotNetCoreProjectSdk", "DotNetCoreProjectSdk.csproj");
+
+			using (var p = (DotNetProject)await Services.ProjectService.ReadSolutionItem (Util.GetMonitor (), projFile)) {
+				Assert.AreEqual (p.MSBuildProject.GetReferencedSDKs (), new string[] { "Microsoft.NET.Sdk" });
+				Assert.AreEqual (p.MSBuildProject.GetImplicitlyImportedSdks ().Length, 1);
+			}
+		}
+
+		[Test]
+		public async Task LoadDotNetCoreProjectWithSdkNode ()
+		{
+			FilePath projFile = Util.GetSampleProject ("DotNetCoreSdkFormat", "DotNetCoreSdkNode", "DotNetCoreSdkNode.csproj");
+
+			using (var p = (DotNetProject)await Services.ProjectService.ReadSolutionItem (Util.GetMonitor (), projFile)) {
+				Assert.AreEqual (p.MSBuildProject.GetReferencedSDKs (), new string[] { "Microsoft.NET.Sdk" });
+				Assert.AreEqual (p.MSBuildProject.GetImplicitlyImportedSdks ().Length, 1);
+			}
+		}
+
+		[Test]
+		public async Task LoadDotNetCoreProjectWithSdkImports ()
+		{
+			FilePath projFile = Util.GetSampleProject ("DotNetCoreSdkFormat", "DotNetCoreImportSdk", "DotNetCoreImportSdk.csproj");
+
+			using (var p = (DotNetProject)await Services.ProjectService.ReadSolutionItem (Util.GetMonitor (), projFile)) {
+				Assert.AreEqual (p.MSBuildProject.GetReferencedSDKs (), new string[] { "Microsoft.NET.Sdk" });
+				Assert.AreEqual (p.MSBuildProject.GetImplicitlyImportedSdks ().Length, 0);
+			}
 		}
 	}
 }

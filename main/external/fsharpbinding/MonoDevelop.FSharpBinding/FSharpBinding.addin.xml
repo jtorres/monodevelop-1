@@ -37,7 +37,7 @@
   </Extension>
 
   <Extension path="/MonoDevelop/ProjectModel/MSBuildItemTypes">
-    <DotNetProjectType language="F#" extension="fsproj" guid="{f2a71f9b-5d33-465a-a702-920d77279786}" type="MonoDevelop.FSharp.FSharpProject"/>
+    <DotNetProjectType language="F#" extension="fsproj" guid="{F2A71F9B-5D33-465A-A702-920D77279786}" type="MonoDevelop.FSharp.FSharpProject"/>
   </Extension>
 
   <Extension path = "/MonoDevelop/ProjectModel/ProjectModelExtensions">
@@ -176,6 +176,7 @@
     <Class fileExtensions = ".fs,.fsi,.fsx,.fsscript" class = "MonoDevelop.FSharp.FSharpCommandsTextEditorExtension" />
     <Class fileExtensions = ".fs,.fsi,.fsx,.fsscript" class = "MonoDevelop.FSharp.ExpandSelectionTextEditorExtension" />
     <Class fileExtensions = ".fs,.fsi,.fsx,.fsscript" class = "MonoDevelop.FSharp.FSharpDebugScriptTextEditorExtension" />
+    <Class fileExtensions = ".fs,.fsi,.fsx,.fsscript" class = "MonoDevelop.FSharp.IndentationTextEditorExtension" />
   </Extension>
 
   <Extension path = "/MonoDevelop/Ide/CodeTemplates">
@@ -193,6 +194,10 @@
   
   <Extension path = "/MonoDevelop/Refactoring/FindReferencesProvider">
     <Class fileExtensions = ".fs,.fsi,.fsx,.fsscript" class="MonoDevelop.FSharp.FSharpFindReferencesProvider" />
+  </Extension>
+
+  <Extension path = "/MonoDevelop/Refactoring/FindReferenceUsagesProvider">
+    <Class fileExtensions = ".fs,.fsi,.fsx,.fsscript" class="MonoDevelop.FSharp.FSharpFindReferenceUsagesProvider" />
   </Extension>
 
   <Extension path = "/MonoDevelop/Refactoring/JumpToDeclarationHandler">
@@ -222,7 +227,7 @@
   </Extension>
 
   <Extension path = "/MonoDevelop/Ide/ContextMenu/ProjectPad">
-    <Condition id="ItemType" value="IFileItem">
+    <Condition id="FileType" fileExtensions=".fs,.fsi,.fsx,.fsscript">
       <CommandItem id = "MonoDevelop.FSharp.SolutionPad.DebugScriptInternal"/>
       <CommandItem id = "MonoDevelop.FSharp.SolutionPad.DebugScriptExternal"/>
     </Condition>

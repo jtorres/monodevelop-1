@@ -149,7 +149,7 @@ namespace MonoDevelop.Ide.Gui.Pads
 		}
 
 		internal bool ClearOnBeginProgress { get; set; } = true;
-		
+
 		public OutputProgressMonitor BeginProgress (string title)
 		{
 			progressStarted = true;
@@ -165,7 +165,11 @@ namespace MonoDevelop.Ide.Gui.Pads
 				Window.IsWorking = true;
 				buttonStop.Sensitive = true;
 			});
-			
+			monitor.Disposed += delegate {
+				if (progressStarted)
+					EndProgress ();
+			};
+
 			monitor.Completed += delegate {
 				EndProgress ();
 			};

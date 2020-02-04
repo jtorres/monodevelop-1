@@ -169,8 +169,6 @@ namespace MonoDevelop.Ide.Editor
 
 		public abstract Task<ParsedDocument> UpdateParseDocument ();
 
-		// TODO: IMO that needs to be handled differently (this is atm only used in the ASP.NET binding)
-		// Maybe using the file service. Files can be changed/saved w/o beeing opened.
 		public event EventHandler Saved;
 
 		protected virtual void OnSaved (EventArgs e)
@@ -183,6 +181,10 @@ namespace MonoDevelop.Ide.Editor
 		internal virtual Task<IReadOnlyList<Editor.Projection.Projection>> GetPartialProjectionsAsync (CancellationToken cancellationToken = default(CancellationToken))
 		{
 			return null;
+		}
+
+		internal virtual void UpdateDocumentId (Microsoft.CodeAnalysis.DocumentId newId)
+		{
 		}
 	}
 }

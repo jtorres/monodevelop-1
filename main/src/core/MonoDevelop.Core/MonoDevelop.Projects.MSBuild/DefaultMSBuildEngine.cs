@@ -42,11 +42,16 @@ namespace MonoDevelop.Projects.MSBuild
 	{
 		Dictionary<FilePath, LoadedProjectInfo> loadedProjects = new Dictionary<FilePath, LoadedProjectInfo> ();
 
+		// For test purposes.
+		internal static Func<MSBuildProject, MSBuildEvaluationContext> GetEvaluationContext = null;
+
 		class LoadedProjectInfo
 		{
 			public MSBuildProject Project;
 			public DateTime LastWriteTime;
-			public int ReferenceCount;
+			public int ReferenceCount = 1;
+			public bool NeedsLoad = false;
+			public object LockObject = new object ();
 		}
 
 		class ProjectInfo
@@ -64,6 +69,7 @@ namespace MonoDevelop.Projects.MSBuild
 			public Dictionary<MSBuildImport, List<ProjectInfo>> ImportedProjects = new Dictionary<MSBuildImport, List<ProjectInfo>> ();
 			public ConditionedPropertyCollection ConditionedProperties = new ConditionedPropertyCollection ();
 			public List<GlobInfo> GlobIncludes = new List<GlobInfo> ();
+			public bool OnlyEvaluateProperties;
 
 			public MSBuildProject GetRootMSBuildProject ()
 			{
@@ -79,6 +85,7 @@ namespace MonoDevelop.Projects.MSBuild
 			public string Value;
 			public string FinalValue;
 			public bool IsImported;
+			public bool DefinedMultipleTimes;
 		}
 
 		class GlobInfo
@@ -128,38 +135,51 @@ namespace MonoDevelop.Projects.MSBuild
 		MSBuildProject LoadProject (MSBuildEvaluationContext context, FilePath fileName)
 		{
 			fileName = fileName.CanonicalPath;
+
+			LoadedProjectInfo pi;
 			lock (loadedProjects) {
-				LoadedProjectInfo pi;
-				if (loadedProjects.TryGetValue (fileName, out pi)) {
-					pi.ReferenceCount++;
-					var lastWriteTime = File.GetLastWriteTime (fileName);
-					if (pi.LastWriteTime != lastWriteTime) {
-						pi.LastWriteTime = lastWriteTime;
-						pi.Project.Load (fileName, new MSBuildXmlReader { ForEvaluation = true });
-					}
-					return pi.Project;
+				if (!loadedProjects.TryGetValue (fileName, out pi)) {
+					loadedProjects [fileName] = pi = new LoadedProjectInfo ();
 				}
-				LogBeginProjectFileLoad (context, fileName);
-				MSBuildProject p = new MSBuildProject (EngineManager);
-				p.Load (fileName, new MSBuildXmlReader { ForEvaluation = true });
-				loadedProjects [fileName] = new LoadedProjectInfo { Project = p, LastWriteTime = File.GetLastWriteTime (fileName) };
-				LogEndProjectFileLoad (context);
-				return p;
+				pi.ReferenceCount++;
+			}
+
+			lock (pi.LockObject) {
+				if (pi.Project == null) {
+					pi.Project = new MSBuildProject (EngineManager);
+					pi.NeedsLoad = true;
+				}
+
+				if (!pi.NeedsLoad)
+					pi.NeedsLoad = pi.LastWriteTime != File.GetLastWriteTimeUtc (fileName);
+
+				if (pi.NeedsLoad) {
+					LogBeginProjectFileLoad (context, fileName);
+					pi.LastWriteTime = File.GetLastWriteTimeUtc (fileName);
+					pi.Project.Load (fileName, new MSBuildXmlReader { ForEvaluation = true });
+					pi.NeedsLoad = false;
+					LogEndProjectFileLoad (context);
+				}
+
+				return pi.Project;
 			}
 		}
 
 		void UnloadProject (MSBuildProject project)
 		{
 			var fileName = project.FileName.CanonicalPath;
+			LoadedProjectInfo pi;
 			lock (loadedProjects) {
-				LoadedProjectInfo pi;
-				if (loadedProjects.TryGetValue (fileName, out pi)) {
-					pi.ReferenceCount--;
-					if (pi.ReferenceCount == 0) {
-						loadedProjects.Remove (fileName);
-						project.Dispose ();
-						//Console.WriteLine ("Unloaded: " + fileName);
-					}
+				if (!loadedProjects.TryGetValue (fileName, out pi))
+					return;
+
+				pi.ReferenceCount--;
+				if (pi.ReferenceCount == 0) {
+					loadedProjects.Remove (fileName);
+					lock (pi.LockObject)
+						pi.Project = null;
+					project.Dispose ();
+					//Console.WriteLine ("Unloaded: " + fileName);
 				}
 			}
 		}
@@ -181,6 +201,11 @@ namespace MonoDevelop.Projects.MSBuild
 
 		public override void Evaluate (object projectInstance)
 		{
+			Evaluate (projectInstance, false);
+		}
+
+		public override void Evaluate (object projectInstance, bool onlyEvaluateProperties)
+		{
 			var pi = (ProjectInfo) projectInstance;
 
 			pi.EvaluatedItemsIgnoringCondition.Clear ();
@@ -189,16 +214,17 @@ namespace MonoDevelop.Projects.MSBuild
 			pi.Imports.Clear ();
 			pi.Targets.Clear ();
 			pi.TargetsIgnoringCondition.Clear ();
+			pi.OnlyEvaluateProperties = onlyEvaluateProperties;
 
 			// Unload referenced projects after evaluating to avoid unnecessary unload + load
 			var oldRefProjects = pi.ReferencedProjects;
 			pi.ReferencedProjects = new List<MSBuildProject> ();
 
 			try {
-				var context = new MSBuildEvaluationContext ();
+				var context = GetEvaluationContext?.Invoke (pi.Project) ?? new MSBuildEvaluationContext ();
 				foreach (var p in pi.GlobalProperties) {
 					context.SetPropertyValue (p.Key, p.Value);
-					pi.Properties [p.Key] = new PropertyInfo { Name = p.Key, Value = p.Value, FinalValue = p.Value };
+					StoreProperty (pi, p.Key, p.Value, p.Value);
 				}
 #if MSBUILD_EVALUATION_STATS
 				context.Log = new ConsoleMSBuildEngineLogger ();
@@ -220,17 +246,13 @@ namespace MonoDevelop.Projects.MSBuild
 			context.InitEvaluation (pi.Project);
 			var objects = pi.Project.GetAllObjects ();
 
-			if (!string.IsNullOrEmpty (pi.Project.Sdk)) {
+			string[] implicitSdks = pi.Project.GetImplicitlyImportedSdks ();
+			if (implicitSdks.Length > 0) {
 				var rootProject = pi.GetRootMSBuildProject ();
-				var sdkPaths = pi.Project.Sdk.Replace ('/', '\\')
-				                 .Split (sdkPathSeparator, StringSplitOptions.RemoveEmptyEntries)
-				                 .Select (s => s.Trim ())
-				                 .Where (s => s.Length > 0)
-				                 .ToList ();
 
-				objects = sdkPaths.Select (sdkPath => new MSBuildImport { Sdk = sdkPath, Project = "Sdk.props" })
-				                  .Concat (objects)
-				                  .Concat (sdkPaths.Select (sdkPath => new MSBuildImport { Sdk = sdkPath, Project = "Sdk.targets" }));
+				objects = implicitSdks.Select (sdkPath => new MSBuildImport { Sdk = sdkPath, Project = "Sdk.props" })
+				                      .Concat (objects)
+				                      .Concat (implicitSdks.Select (sdkPath => new MSBuildImport { Sdk = sdkPath, Project = "Sdk.targets" }));
 			}
 
 			// If there is a .user project file load it using a fake import item added at the end of the objects list
@@ -239,7 +261,7 @@ namespace MonoDevelop.Projects.MSBuild
 
 			objects = objects.ToList ();
 
-			LogBeginEvaluationStage (context, "Evaluating Properies");
+			LogBeginEvaluationStage (context, "Evaluating Properties");
 			LogBeginEvalProject (context, pi);
 
 			EvaluateObjects (pi, context, objects, false);
@@ -247,13 +269,15 @@ namespace MonoDevelop.Projects.MSBuild
 			LogEndEvalProject (context, pi);
 			LogEndEvaluationStage (context);
 
-			LogBeginEvaluationStage (context, "Evaluating Items");
-			LogBeginEvalProject (context, pi);
+			if (!pi.OnlyEvaluateProperties) {
+				LogBeginEvaluationStage (context, "Evaluating Items");
+				LogBeginEvalProject (context, pi);
 
-			EvaluateObjects (pi, context, objects, true);
+				EvaluateObjects (pi, context, objects, true);
 
-			LogEndEvalProject (context, pi);
-			LogEndEvaluationStage (context);
+				LogEndEvalProject (context, pi);
+				LogEndEvaluationStage (context);
+			}
 
 			// Once items have been evaluated, we need to re-evaluate properties that contain item transformations
 			// (or that contain references to properties that have transformations).
@@ -488,11 +512,14 @@ namespace MonoDevelop.Projects.MSBuild
 		static void AddRemoveToGlobInclude (ProjectInfo project, MSBuildItem item, string remove)
 		{
 			var exclude = ExcludeToRegex (remove);
-			foreach (var globInclude in project.GlobIncludes.Where (g => g.Item.Name == item.Name)) {
-				if (globInclude.RemoveRegex != null)
-					exclude = globInclude.RemoveRegex + "|" + exclude;
-				globInclude.RemoveRegex = new Regex (exclude);
-			}
+			do {
+				foreach (var globInclude in project.GlobIncludes.Where (g => g.Item.Name == item.Name)) {
+					if (globInclude.RemoveRegex != null)
+						exclude = globInclude.RemoveRegex + "|" + exclude;
+					globInclude.RemoveRegex = new Regex (exclude);
+				}
+				project = project.Parent;
+			} while (project != null);
 		}
 
 		static void RemoveEvaluatedItemFromAllProjects (ProjectInfo project, MSBuildItem item, string include, bool trueCond)
@@ -519,7 +546,7 @@ namespace MonoDevelop.Projects.MSBuild
 			if (IsIncludeTransform (include)) {
 				// This is a transform
 				List<MSBuildItemEvaluated> evalItems;
-				var transformExp = include.Substring (2, include.Length - 3);
+				var transformExp = include.AsSpan (2, include.Length - 3);
 				if (ExecuteTransform (project, context, item, transformExp, out evalItems)) {
 					foreach (var newItem in evalItems) {
 						project.EvaluatedItemsIgnoringCondition.Add (newItem);
@@ -552,7 +579,7 @@ namespace MonoDevelop.Projects.MSBuild
 			}
 		}
 
-		bool ExecuteTransform (ProjectInfo project, MSBuildEvaluationContext context, MSBuildItem item, string transformExp, out List<MSBuildItemEvaluated> items)
+		bool ExecuteTransform (ProjectInfo project, MSBuildEvaluationContext context, MSBuildItem item, ReadOnlySpan<char> transformExp, out List<MSBuildItemEvaluated> items)
 		{
 			bool ignoreMetadata = false;
 
@@ -625,7 +652,7 @@ namespace MonoDevelop.Projects.MSBuild
 			return true;
 		}
 
-		internal static bool ExecuteStringTransform (List<MSBuildItemEvaluated> evaluatedItemsCollection, MSBuildEvaluationContext context, string transformExp, out string items)
+		internal static bool ExecuteStringTransform (List<MSBuildItemEvaluated> evaluatedItemsCollection, MSBuildEvaluationContext context, ReadOnlySpan<char> transformExp, out string items)
 		{
 			// This method works mostly like ExecuteTransform, but instead of returning a list of items, it returns a string as result.
 			// Since there is no need to create full blown evaluated items, it can be more efficient than ExecuteTransform.
@@ -644,18 +671,18 @@ namespace MonoDevelop.Projects.MSBuild
 					items = result;
 					return true;
 				} else if (ExecuteTransformItemListFunction (ref transformItems, itemFunction, itemFunctionArgs, out ignoreMetadata)) {
-					var sb = new StringBuilder ();
+					var sb = StringBuilderCache.Allocate ();
 					for (int n = 0; n < transformItems.Length; n++) {
 						if (n > 0)
 							sb.Append (';');
 						sb.Append (transformItems[n].Include);
 					}	
-					items = sb.ToString ();
+					items = StringBuilderCache.ReturnAndFree (sb);
 					return true;
 				}
 			}
 
-			var sbi = new StringBuilder ();
+			var sbi = StringBuilderCache.Allocate ();
 
 			int count = 0;
 			foreach (var eit in transformItems) {
@@ -677,11 +704,11 @@ namespace MonoDevelop.Projects.MSBuild
 					context.ClearItemContext ();
 				}
 			}
-			items = sbi.ToString ();
+			items = Core.StringBuilderCache.ReturnAndFree (sbi);
 			return true;
 		}
 
-		static bool ParseTransformExpression (MSBuildEvaluationContext context, string include, out string itemName, out string expression, out string itemFunction, out object [] itemFunctionArgs)
+		static bool ParseTransformExpression (MSBuildEvaluationContext context, ReadOnlySpan<char> include, out string itemName, out string expression, out string itemFunction, out object [] itemFunctionArgs)
 		{
 			// This method parses the transforms and extracts: the name of the item list to transform, the whole transform expression (or null if there isn't). If the expression can be
 			// parsed as an item funciton, then it returns the function name and the list of arguments. Otherwise those parameters are null.
@@ -690,57 +717,33 @@ namespace MonoDevelop.Projects.MSBuild
 			itemFunction = null;
 			itemFunctionArgs = null;
 		
-			int i = include.IndexOf ("->", StringComparison.Ordinal);
+			int i = include.IndexOf ("->".AsSpan (), StringComparison.Ordinal);
 			if (i == -1) {
-				itemName = include.Trim ();
+				itemName = include.Trim ().ToString ();
 				return itemName.Length > 0;
 			}
-			itemName = include.Substring (0, i).Trim ();
+			itemName = include.Slice (0, i).Trim ().ToString ();
 			if (itemName.Length == 0)
 				return false;
 			
-			expression = include.Substring (i + 2).Trim ();
-			if (expression.Length > 1 && expression[0]=='\'' && expression[expression.Length - 1] == '\'') {
-				expression = expression.Substring (1, expression.Length - 2);
+			var expressionSpan = include.Slice (i + 2).Trim ();
+			if (expressionSpan.Length > 1 && expressionSpan [0]=='\'' && expressionSpan [expressionSpan.Length - 1] == '\'') {
+				expression = expressionSpan.Slice (1, expressionSpan.Length - 2).ToString ();
 				return true;
 			}
-			i = expression.IndexOf ('(');
+			expression = expressionSpan.ToString ();
+			i = expressionSpan.IndexOf ('(');
 			if (i == -1)
 				return true;
 
-			var func = expression.Substring (0, i).Trim ();
+			var func = expressionSpan.Slice (0, i).Trim ().ToString ();
 			if (knownItemFunctions.Contains (func)) {
 				itemFunction = func;
 				i++;
-				context.EvaluateParameters (expression, ref i, out itemFunctionArgs);
+				context.EvaluateParameters (expressionSpan, ref i, out itemFunctionArgs);
 				return true;
 			}
 			return true;
-		}
-
-		static bool ReadItemFunctionArg (string include, ref int i, out string arg)
-		{
-			arg = null;
-			if (!SkipWhitespace (include, ref i))
-				return false;
-			var quote = include [i];
-			if (quote == ')')
-				return true;
-			if (quote != '"' && quote != '\'')
-				return false;
-			int k = include.IndexOf (quote, ++i);
-			if (k == -1)
-				return false;
-			arg = include.Substring (i, k - i);
-			i = k + 1;
-			return SkipWhitespace (include, ref i);
-		}
-
-		static bool SkipWhitespace (string include, ref int i)
-		{
-			while (i < include.Length && char.IsWhiteSpace (include [i]))
-				i++;
-			return i < include.Length;
 		}
 
 		static bool ExecuteTransformIncludeItemFunction (MSBuildEvaluationContext context, MSBuildItemEvaluated item, string itemFunction, object [] itemFunctionArgs, out string evaluatedInclude, out bool skip)
@@ -767,7 +770,7 @@ namespace MonoDevelop.Projects.MSBuild
 			}
 			if (knownStringItemFunctions.Contains (itemFunction)) {
 				object res;
-				if (context.EvaluateMember (itemFunction, typeof (string), itemFunction, item.Include, itemFunctionArgs, out res)) {
+				if (context.EvaluateMember (itemFunction.AsSpan (), typeof (string), itemFunction, item.Include, itemFunctionArgs, out res)) {
 					evaluatedInclude = res.ToString ();
 					return true;
 				}
@@ -942,12 +945,12 @@ namespace MonoDevelop.Projects.MSBuild
 		static string ExcludeToRegex (string exclude, bool excludeDirectoriesOnly = false)
 		{
 			exclude = exclude.Replace ('/', '\\').Replace (@"\\", @"\");
-			var sb = new StringBuilder ();
+			var sb = StringBuilderCache.Allocate ();
 			foreach (var ep in exclude.Split (new char [] { ';' }, StringSplitOptions.RemoveEmptyEntries)) {
-				var ex = ep.Trim ();
+				var ex = ep.AsSpan ().Trim ();
 				if (excludeDirectoriesOnly) {
-					if (ex.EndsWith (@"\**", StringComparison.OrdinalIgnoreCase))
-						ex = ex.Substring (0, ex.Length - 3);
+					if (ex.EndsWith (@"\**".AsSpan (), StringComparison.OrdinalIgnoreCase))
+						ex = ex.Slice (0, ex.Length - 3);
 					else
 						continue;
 				}
@@ -976,7 +979,7 @@ namespace MonoDevelop.Projects.MSBuild
 				}
 				sb.Append ('$');
 			}
-            return sb.ToString ();
+			return Core.StringBuilderCache.ReturnAndFree (sb);
         }
 
 		static char [] regexEscapeChars = { '\\', '^', '$', '{', '}', '[', ']', '(', ')', '.', '*', '+', '?', '|', '<', '>', '-', '&' };
@@ -1019,7 +1022,7 @@ namespace MonoDevelop.Projects.MSBuild
 				var val = context.Evaluate (prop.UnevaluatedValue, out needsItemEvaluation);
 				if (needsItemEvaluation)
 					context.SetPropertyNeedsTransformEvaluation (prop.Name);
-				project.Properties [prop.Name] = new PropertyInfo { Name = prop.Name, Value = prop.UnevaluatedValue, FinalValue = val };
+				StoreProperty (project, prop.Name, prop.UnevaluatedValue, val);
 				context.SetPropertyValue (prop.Name, val);
 			}
 		}
@@ -1029,12 +1032,12 @@ namespace MonoDevelop.Projects.MSBuild
 			return CreateEvaluatedItem (context, project, project.Project, item, context.EvaluateString (item.Include));
 		}
 
-		IEnumerable<ProjectInfo> GetImportedProjects (ProjectInfo project, MSBuildImport import)
+		IReadOnlyList<ProjectInfo> GetImportedProjects (ProjectInfo project, MSBuildImport import)
 		{
 			List<ProjectInfo> prefProjects;
 			if (project.ImportedProjects.TryGetValue (import, out prefProjects))
 				return prefProjects;
-			return Enumerable.Empty<ProjectInfo> ();
+			return Array.Empty<ProjectInfo> ();
 		}
 
 		void AddImportedProject (ProjectInfo project, MSBuildImport import, ProjectInfo imported)
@@ -1058,7 +1061,9 @@ namespace MonoDevelop.Projects.MSBuild
 			if (evalItems) {
 				// Properties have already been evaluated
 				// Don't evaluate properties, only items and other elements
-				foreach (var p in GetImportedProjects (project, import)) {
+				var importedProjects = GetImportedProjects (project, import);
+				for (int i = 0; i < importedProjects.Count; ++i) {
+					var p = importedProjects [i];
 					
 					EvaluateProject (p, new MSBuildEvaluationContext (context), true);
 
@@ -1102,9 +1107,19 @@ namespace MonoDevelop.Projects.MSBuild
 			// In that case, look in fallback search paths
 
 			if (keepSearching) {
-				foreach (var prop in context.GetProjectImportSearchPaths ()) {
-					if (import.Project.IndexOf ("$(" + prop.Property + ")", StringComparison.OrdinalIgnoreCase) == -1)
+				// Short-circuit if we don't have an import that is done via a property.
+				int propertyStart = import.Project.IndexOf ("$(", StringComparison.Ordinal);
+				if (propertyStart == -1)
+					return;
+				
+				var importSearchPaths = context.GetProjectImportSearchPaths ();
+				for (int i = 0; i < importSearchPaths.Count; ++i) {
+					var prop = importSearchPaths [i];
+
+					// Start searching from where the property was found.
+					if (import.Project.IndexOf (prop.MSBuildProperty, propertyStart, StringComparison.OrdinalIgnoreCase) == -1)
 						continue;
+
 					files = GetImportFiles (project, context, import, prop.Property, prop.Path, out resolvedSdksPath, out keepSearching);
 					if (files != null) {
 						foreach (var f in files)
@@ -1177,6 +1192,8 @@ namespace MonoDevelop.Projects.MSBuild
 			if (!File.Exists (file))
 				return;
 
+			context.AddImport (file);
+
 			var pref = LoadProject (context, file);
 			project.ReferencedProjects.Add (pref);
 
@@ -1194,8 +1211,15 @@ namespace MonoDevelop.Projects.MSBuild
 
 			foreach (var p in prefProject.Properties) {
 				p.Value.IsImported = true;
+
+				// If the importer project already has a value for this property, flag it as defined multiple times
+				if (project.Properties.ContainsKey (p.Key))
+					p.Value.DefinedMultipleTimes = true;
+				
 				project.Properties [p.Key] = p.Value;
 			}
+
+			context.RemoveImport (file);
 		}
 
 		void Evaluate (ProjectInfo project, MSBuildEvaluationContext context, MSBuildChoose choose, bool evalItems)
@@ -1224,7 +1248,7 @@ namespace MonoDevelop.Projects.MSBuild
 				project.Targets.Add (newTarget);
 		}
 
-		Dictionary<string, ConditionExpression> conditionCache = new Dictionary<string, ConditionExpression> ();
+		System.Collections.Immutable.ImmutableDictionary<string, ConditionExpression> conditionCache = System.Collections.Immutable.ImmutableDictionary<string, ConditionExpression>.Empty;
 		bool SafeParseAndEvaluate (ProjectInfo project, MSBuildEvaluationContext context, string condition, bool collectConditionedProperties = false, string customEvalBasePath = null)
 		{
 			try {
@@ -1235,19 +1259,18 @@ namespace MonoDevelop.Projects.MSBuild
 
 				try {
 					ConditionExpression ce;
-					lock (conditionCache) {
-						if (!conditionCache.TryGetValue (condition, out ce))
-							ce = ConditionParser.ParseCondition (condition);
-						conditionCache [condition] = ce;
+					if (!conditionCache.TryGetValue (condition, out ce)) {
+						ce = ConditionParser.ParseCondition (condition);
+						conditionCache = conditionCache.SetItem (condition, ce);
 					}
-
-					if (!ce.CanEvaluateToBool (context))
-						throw new InvalidProjectFileException (String.Format ("Can not evaluate \"{0}\" to bool.", condition));
 
 					if (collectConditionedProperties)
 						ce.CollectConditionProperties (project.ConditionedProperties);
 
-					return ce.BoolEvaluate (context);
+					if (!ce.TryEvaluateToBool (context, out bool value))
+						throw new InvalidProjectFileException (String.Format ("Can not evaluate \"{0}\" to bool.", condition));
+
+					return value;
 				} catch (ExpressionParseException epe) {
 					throw new InvalidProjectFileException (
 						String.Format ("Unable to parse condition \"{0}\" : {1}", condition, epe.Message),
@@ -1265,6 +1288,17 @@ namespace MonoDevelop.Projects.MSBuild
 			finally {
 				context.CustomFullDirectoryName = null;
 			}
+		}
+
+		void StoreProperty (ProjectInfo project, string name, string value, string finalValue)
+		{
+			PropertyInfo pi;
+			if (project.Properties.TryGetValue (name, out pi)) {
+				pi.Value = value;
+				pi.FinalValue = finalValue;
+				pi.DefinedMultipleTimes = true;
+			} else
+				project.Properties [name] = new PropertyInfo { Name = name, Value = value, FinalValue = finalValue };
 		}
 
 		public override bool GetItemHasMetadata (object item, string name)
@@ -1340,12 +1374,13 @@ namespace MonoDevelop.Projects.MSBuild
 			imported = it.IsImported;
 		}
 
-		public override void GetPropertyInfo (object property, out string name, out string value, out string finalValue)
+		public override void GetPropertyInfo (object property, out string name, out string value, out string finalValue, out bool definedMultipleTimes)
 		{
 			var prop = (PropertyInfo)property;
 			name = prop.Name;
 			value = prop.Value;
 			finalValue = prop.FinalValue;
+			definedMultipleTimes = prop.DefinedMultipleTimes;
 		}
 
 		public override IEnumerable<MSBuildTarget> GetTargets (object projectInstance)

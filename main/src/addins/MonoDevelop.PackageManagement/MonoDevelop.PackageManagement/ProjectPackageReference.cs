@@ -51,7 +51,7 @@ namespace MonoDevelop.PackageManagement
 			VersionRange version,
 			NuGetFramework framework)
 		{
-			if (!version.IsFloating)
+			if (version != null && !version.IsFloating)
 				version = null;
 
 			return new PackageReference (
@@ -64,12 +64,15 @@ namespace MonoDevelop.PackageManagement
 
 		PackageIdentity GetPackageIdentity (VersionRange version)
 		{
-			return new PackageIdentity (Include, version.MinVersion);
+			return new PackageIdentity (Include, version?.MinVersion);
 		}
 
 		VersionRange GetVersion ()
 		{
 			string version = Metadata.GetValue ("Version");
+			if (string.IsNullOrEmpty (version))
+				return null;
+
 			return VersionRange.Parse (version);
 		}
 
@@ -88,18 +91,7 @@ namespace MonoDevelop.PackageManagement
 		{
 			var packageReference = CreatePackageReference ();
 			var requestedVersion = new NuGetVersion (version);
-			var comparer = VersionComparer.VersionRelease;
-			if (packageReference.HasAllowedVersions) {
-				var versionRange = packageReference.AllowedVersions;
-				if (versionRange.HasLowerBound) {
-					var result = comparer.Compare (versionRange.MinVersion, requestedVersion);
-					return versionRange.IsMinInclusive ? result <= 0 : result < 0;
-				}
-			} else if (packageReference.PackageIdentity.HasVersion) {
-				var packageVersion = packageReference.PackageIdentity.Version;
-				return comparer.Compare (requestedVersion, packageVersion) <= 0;
-			}
-			return false;
+			return packageReference.IsAtLeastVersion (requestedVersion);
 		}
 
 		public bool Equals (PackageIdentity packageIdentity, bool matchVersion = true)
@@ -155,5 +147,10 @@ namespace MonoDevelop.PackageManagement
 		}
 
 		public bool IsImplicit { get; internal set; }
+
+		public string Version {
+			get { return Metadata.GetValue ("Version"); }
+			set { Metadata.SetValue ("Version", value); }
+		}
 	}
 }

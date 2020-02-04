@@ -28,6 +28,8 @@ using MonoDevelop.Core;
 using MonoDevelop.Ide.Gui.Content;
 using MonoDevelop.Ide.Fonts;
 using MonoDevelop.Ide.Editor.Extension;
+using Microsoft.VisualStudio.CodingConventions;
+using System.Threading.Tasks;
 
 namespace MonoDevelop.Ide.Editor
 {
@@ -52,6 +54,7 @@ namespace MonoDevelop.Ide.Editor
 		static DefaultSourceEditorOptions instance;
 		//static TextStylePolicy defaultPolicy;
 		static bool inited;
+		ICodingConventionContext context;
 
 		public static DefaultSourceEditorOptions Instance {
 			get { return instance; }
@@ -142,7 +145,7 @@ namespace MonoDevelop.Ide.Editor
 
 			bool ITextEditorOptions.HighlightCaretLine {
 				get {
-					return DefaultSourceEditorOptions.Instance.HighlightCaretLine;
+					return false;
 				}
 			}
 
@@ -241,6 +244,12 @@ namespace MonoDevelop.Ide.Editor
 					return DefaultSourceEditorOptions.Instance.SmartBackspace;
 				}
 			}
+
+			bool ITextEditorOptions.EnableQuickDiff {
+				get {
+					return false;
+				}
+			}
 			#endregion
 
 
@@ -268,7 +277,7 @@ namespace MonoDevelop.Ide.Editor
 			this.OnChanged (EventArgs.Empty);
 		}
 
-		void UpdateStylePolicy (MonoDevelop.Ide.Gui.Content.TextStylePolicy currentPolicy)
+		internal void UpdateStylePolicy (MonoDevelop.Ide.Gui.Content.TextStylePolicy currentPolicy)
 		{
 			defaultEolMarker = TextStylePolicy.GetEolMarker (currentPolicy.EolMarker);
 			tabsToSpaces          = currentPolicy.TabsToSpaces; // PropertyService.Get ("TabsToSpaces", false);
@@ -278,14 +287,71 @@ namespace MonoDevelop.Ide.Editor
 			removeTrailingWhitespaces = currentPolicy.RemoveTrailingWhitespace; //PropertyService.Get ("RemoveTrailingWhitespaces", true);
 		}
 
-		public ITextEditorOptions WithTextStyle (MonoDevelop.Ide.Gui.Content.TextStylePolicy policy)
+		internal DefaultSourceEditorOptions Create ()
+		{
+			var result = (DefaultSourceEditorOptions)MemberwiseClone ();
+			result.Changed = null;
+			return result;
+		}
+
+		public DefaultSourceEditorOptions WithTextStyle (TextStylePolicy policy)
 		{
 			if (policy == null)
-				throw new ArgumentNullException ("policy");
+				throw new ArgumentNullException (nameof (policy));
 			var result = (DefaultSourceEditorOptions)MemberwiseClone ();
 			result.UpdateStylePolicy (policy);
 			result.Changed = null;
 			return result;
+		}
+
+		internal void SetContext (ICodingConventionContext context)
+		{
+			if (this.context == context)
+				return;
+			if (this.context != null)
+				this.context.CodingConventionsChangedAsync -= UpdateContextOptions;
+			this.context = context;
+			context.CodingConventionsChangedAsync += UpdateContextOptions;
+			UpdateContextOptions (null, null);
+		}
+
+		private Task UpdateContextOptions (object sender, CodingConventionsChangedEventArgs arg)
+		{
+			if (context == null)
+				return Task.FromResult (false);
+
+			defaultEolMarkerFromContext = null;
+			if (context.CurrentConventions.UniversalConventions.TryGetLineEnding (out string eolMarker))
+				defaultEolMarkerFromContext = eolMarker;
+
+			tabsToSpacesFromContext = null;
+			if (context.CurrentConventions.UniversalConventions.TryGetIndentStyle (out Microsoft.VisualStudio.CodingConventions.IndentStyle result))
+				tabsToSpacesFromContext = result == Microsoft.VisualStudio.CodingConventions.IndentStyle.Spaces;
+
+			indentationSizeFromContext = null;
+			if (context.CurrentConventions.UniversalConventions.TryGetIndentSize (out int indentSize)) 
+				indentationSizeFromContext = indentSize;
+
+			removeTrailingWhitespacesFromContext = null;
+			if (context.CurrentConventions.UniversalConventions.TryGetAllowTrailingWhitespace (out bool allowTrailing))
+				removeTrailingWhitespacesFromContext = !allowTrailing;
+
+			tabSizeFromContext = null;
+			if (context.CurrentConventions.UniversalConventions.TryGetTabWidth (out int tSize))
+				tabSizeFromContext = tSize;
+
+			rulerColumnFromContext = null;
+			showRulerFromContext = null;
+			if (context.CurrentConventions.TryGetConventionValue<string> (EditorConfigService.MaxLineLengthConvention, out string maxLineLength)) {
+				if (maxLineLength != "off" && int.TryParse (maxLineLength, out int i)) {
+					rulerColumnFromContext = i;
+					showRulerFromContext = true;
+				} else {
+					showRulerFromContext = false;
+				}
+			}
+
+			return Task.FromResult (true);
 		}
 
 		#region new options
@@ -383,7 +449,7 @@ namespace MonoDevelop.Ide.Editor
 			}
 		}
 		
-		ConfigurationProperty<LineEndingConversion> lineEndingConversion = ConfigurationProperty.Create("LineEndingConversion", LineEndingConversion.LeaveAsIs);
+		ConfigurationProperty<LineEndingConversion> lineEndingConversion = ConfigurationProperty.Create ("LineEndingConversion", LineEndingConversion.LeaveAsIs);
 		public LineEndingConversion LineEndingConversion {
 			get {
 				return lineEndingConversion;
@@ -394,24 +460,36 @@ namespace MonoDevelop.Ide.Editor
 			}
 		}
 
-		#endregion
-
-		ConfigurationProperty<bool> onTheFlyFormatting = ConfigurationProperty.Create ("OnTheFlyFormatting", true);
-		public bool OnTheFlyFormatting {
+		ConfigurationProperty<bool> showProcedureLineSeparators = ConfigurationProperty.Create ("ShowProcedureLineSeparators", false);
+		public bool ShowProcedureLineSeparators {
 			get {
-				return onTheFlyFormatting;
+				return showProcedureLineSeparators;
 			}
 			set {
-				if (onTheFlyFormatting.Set (value))
+				if (showProcedureLineSeparators.Set (value))
 					OnChanged (EventArgs.Empty);
+			}
+		}
+
+		#endregion
+
+		[Obsolete ("Deprecated - use the roslyn FeatureOnOffOptions.FormatXXX per document options.")]
+		public bool OnTheFlyFormatting {
+			get {
+				return true;
+			}
+			set {
+				// unused
 			}
 		}
 
 		#region ITextEditorOptions
 		string defaultEolMarker = Environment.NewLine;
+		string defaultEolMarkerFromContext = null;
+
 		public string DefaultEolMarker {
 			get {
-				return defaultEolMarker;
+				return defaultEolMarkerFromContext ?? defaultEolMarker;
 			}
 			set {
 				if (defaultEolMarker != value) {
@@ -461,9 +539,10 @@ namespace MonoDevelop.Ide.Editor
 		}
 		
 		bool tabsToSpaces = true;
+		bool? tabsToSpacesFromContext;
 		public bool TabsToSpaces {
 			get {
-				return tabsToSpaces;
+				return tabsToSpacesFromContext ?? tabsToSpaces;
 			}
 			set {
 				if (tabsToSpaces != value) {
@@ -475,9 +554,10 @@ namespace MonoDevelop.Ide.Editor
 		}
 		
 		int indentationSize = 4;
+		int? indentationSizeFromContext;
 		public int IndentationSize {
 			get {
-				return indentationSize;
+				return indentationSizeFromContext ?? indentationSize;
 			}
 			set {
 				if (indentationSize != value) {
@@ -494,21 +574,23 @@ namespace MonoDevelop.Ide.Editor
 				return TabsToSpaces ? new string (' ', this.TabSize) : "\t";
 			}
 		}
-		
+
+		int? tabSizeFromContext;
 		public int TabSize {
 			get {
-				return IndentationSize;
+				return tabSizeFromContext ?? IndentationSize;
 			}
 			set {
 				IndentationSize = value;
 			}
 		}
 
-		
 		bool removeTrailingWhitespaces = true;
+		bool? removeTrailingWhitespacesFromContext;
+
 		public bool RemoveTrailingWhitespaces {
 			get {
-				return removeTrailingWhitespaces;
+				return removeTrailingWhitespacesFromContext ?? removeTrailingWhitespaces;
 			}
 			set {
 				if (removeTrailingWhitespaces != value) {
@@ -529,14 +611,14 @@ namespace MonoDevelop.Ide.Editor
 					OnChanged (EventArgs.Empty);
 			}
 		}
-		
-		ConfigurationProperty<bool> showFoldMargin = ConfigurationProperty.Create ("ShowFoldMargin", false);
+
+		ConfigurationProperty<bool> hideFoldMargin = ConfigurationProperty.Create ("HideFoldMargin", false);
 		public bool ShowFoldMargin {
 			get {
-				return showFoldMargin;
+				return !hideFoldMargin;
 			}
 			set {
-				if (showFoldMargin.Set (value))
+				if (hideFoldMargin.Set (!value))
 					OnChanged (EventArgs.Empty);
 			}
 		}
@@ -589,10 +671,12 @@ namespace MonoDevelop.Ide.Editor
 		}
 
 		int  rulerColumn = 120;
+		int? rulerColumnFromContext;
+
 
 		public int RulerColumn {
 			get {
-				return rulerColumn;
+				return rulerColumnFromContext ?? rulerColumn;
 			}
 			set {
 				if (rulerColumn != value) {
@@ -604,9 +688,10 @@ namespace MonoDevelop.Ide.Editor
 		}
 		
 		ConfigurationProperty<bool> showRuler = ConfigurationProperty.Create ("ShowRuler", true);
+		bool? showRulerFromContext;
 		public bool ShowRuler {
 			get {
-				return showRuler;
+				return showRulerFromContext ?? showRuler;
 			}
 			set {
 				if (showRuler.Set (value))
@@ -752,6 +837,7 @@ namespace MonoDevelop.Ide.Editor
 		public bool SmartBackspace{
 			get {
 				return smartBackspace;
+
 			}
 			set {
 				if (smartBackspace.Set (value))
@@ -764,6 +850,8 @@ namespace MonoDevelop.Ide.Editor
 		{
 			FontService.RemoveCallback (UpdateFont);
 			IdeApp.Preferences.ColorScheme.Changed -= OnColorSchemeChanged;
+			if (context != null)
+				context.CodingConventionsChangedAsync -= UpdateContextOptions;
 		}
 
 		protected void OnChanged (EventArgs args)

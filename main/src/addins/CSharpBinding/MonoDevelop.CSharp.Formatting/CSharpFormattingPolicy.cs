@@ -586,6 +586,7 @@ namespace MonoDevelop.CSharp.Formatting
 
 		#region Code Style options
 		bool placeSystemDirectiveFirst = true;
+		[Obsolete("Not used anymore.")]
 		[ItemProperty]
 		public bool PlaceSystemDirectiveFirst {
 			get {
@@ -601,7 +602,7 @@ namespace MonoDevelop.CSharp.Formatting
 
 		public CSharpFormattingPolicy ()
 		{
-			this.options = TypeSystemService.Workspace.Options;
+			this.options = TypeSystemService.Workspace?.Options;
 		}
 		
 		public static CSharpFormattingPolicy Load (FilePath selectedFile)

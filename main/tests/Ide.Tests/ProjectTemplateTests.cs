@@ -44,10 +44,7 @@ namespace MonoDevelop.Ide
 	[TestFixture]
 	public class ProjectTemplateTests : IdeTestBase
 	{
-		public ProjectTemplateTests ()
-		{
-			Simulate ();
-		}
+		Solution solution;
 
 		IEnumerable<string> Templates {
 			get {
@@ -55,9 +52,18 @@ namespace MonoDevelop.Ide
 			}
 		}
 
+		[TearDown]
+		public override void TearDown ()
+		{
+			solution?.Dispose ();
+			solution = null;
+
+			base.TearDown ();
+		}
+
 		[Test]
 		[TestCaseSource ("Templates")]
-		public void CreateEveryProjectTemplate (string tt)
+		public async Task CreateEveryProjectTemplate (string tt)
 		{
 			var template = ProjectTemplate.ProjectTemplates.FirstOrDefault (t => t.Id == tt);
 			if (template.Name.Contains ("Gtk#"))
@@ -76,14 +82,14 @@ namespace MonoDevelop.Ide
 			cinfo.Parameters ["CreateiOSUITest"] = "False";
 			cinfo.Parameters ["CreateAndroidUITest"] = "False";
 
-			template.CreateWorkspaceItem (cinfo);
+			solution = await template.CreateWorkspaceItem (cinfo) as Solution;
 		}
 
 		[Test]
 		public async Task NewSharedProjectAddedToExistingSolutionUsesCorrectBuildAction ()
 		{
-			Solution sol = TestProjectsChecks.CreateConsoleSolution ("shared-project");
-			await sol.SaveAsync (Util.GetMonitor ());
+			solution = TestProjectsChecks.CreateConsoleSolution ("shared-project");
+			await solution.SaveAsync (Util.GetMonitor ());
 
 			var template = ProjectTemplate.ProjectTemplates.FirstOrDefault (t => t.Id == "MonoDevelop.CSharp.SharedProject");
 			var dir = Util.CreateTmpDir (template.Id);
@@ -94,9 +100,24 @@ namespace MonoDevelop.Ide
 				SolutionPath = dir
 			};
 
-			var sharedAssetsProject = template.CreateProjects (sol.RootFolder, cinfo)
+			var sharedAssetsProject = template.CreateProjects (solution.RootFolder, cinfo)
 				.OfType<SharedAssetsProject> ().Single ();
-			var myclassFile = sharedAssetsProject.Files.First (f => f.FilePath.FileName == "MyClass.cs");
+
+			// Template initialization is now asynchronous so we need to wait and unblock the UI thread
+			// to ensure the template finishes adding files to the project.
+			const int timeout = 2000; // ms
+			int waitedTime = 0;
+			int delayTime = 100;
+			ProjectFile myclassFile = null;
+			while (myclassFile == null) {
+				myclassFile = sharedAssetsProject.Files.FirstOrDefault (f => f.FilePath.FileName == "MyClass.cs");
+				if (myclassFile == null) {
+					if (waitedTime >= timeout)
+						Assert.Fail ("Timed out waiting for file to be added to shared project.");
+					await Task.Run (async () => await Task.Delay (delayTime));
+					waitedTime += delayTime;
+				}
+			};
 			Assert.AreEqual ("Compile", myclassFile.BuildAction);
 		}
 
@@ -138,7 +159,7 @@ namespace MonoDevelop.Ide
 				CreateProjectDirectoryInsideSolutionDirectory = false
 			}, null);
 
-			var solution = result.WorkspaceItems.OfType<Solution> ().Single ();
+			solution = result.WorkspaceItems.OfType<Solution> ().Single ();
 
 			await solution.SaveAsync (Util.GetMonitor ());
 			var project = solution.GetAllProjects ().Single ();
@@ -159,14 +180,16 @@ namespace MonoDevelop.Ide
 				ProjectName = "Bug57840StandardTestProject",
 				CreateProjectDirectoryInsideSolutionDirectory = false
 			}, solution.RootFolder);
+			var standardProject = result2.WorkspaceItems.OfType<DotNetProject> ().Single ();
+			solution.RootFolder.AddItem (standardProject);
 			await solution.SaveAsync (Util.GetMonitor ());
 			var fileContentAfterSecondProject = await TextFileUtility.ReadAllTextAsync (file);
 			Assert.AreEqual (fileContentAfterSecondProject.Text, fileContentAfterFormat.Text);//Make sure our weird formatting is preserved
-			var standardProject = result2.WorkspaceItems.OfType<DotNetProject> ().Single ();
 			var class1File = standardProject.Files.Single (f => f.FilePath.FileName == "Class1.cs").FilePath;
 			var fileContentAfterCreation = await TextFileUtility.ReadAllTextAsync (class1File);
 			standardProject.Policies.Set<TextStylePolicy> (new TextStylePolicy (3, 3, 3, true, true, true, EolMarker.Mac), "text/x-csharp");
 			await FormatFile (standardProject, class1File);
+			standardProject.Dispose();
 			var fileContentAfterForceFormatting = await TextFileUtility.ReadAllTextAsync (class1File);
 			Assert.AreEqual (fileContentAfterForceFormatting.Text, fileContentAfterCreation.Text,
 			                "We expect them to be same because we placed same formatting policy on solution before creataion as after creation on project when we manually formatted.");
@@ -195,7 +218,7 @@ namespace MonoDevelop.Ide
 				CreateProjectDirectoryInsideSolutionDirectory = false,
 			}, null);
 
-			var solution = result.WorkspaceItems.OfType<Solution> ().Single ();
+			solution = result.WorkspaceItems.OfType<Solution> ().Single ();
 
 			await solution.SaveAsync (Util.GetMonitor ());
 			Assert.AreEqual (2, solution.GetAllProjects ().Count ());
@@ -239,7 +262,7 @@ namespace MonoDevelop.Ide
 				CreateProjectDirectoryInsideSolutionDirectory = false,
 			}, null);
 
-			var solution = result.WorkspaceItems.OfType<Solution> ().Single ();
+			solution = result.WorkspaceItems.OfType<Solution> ().Single ();
 
 			await solution.SaveAsync (Util.GetMonitor ());
 
@@ -252,6 +275,46 @@ namespace MonoDevelop.Ide
 			} else {
 				Assert.AreEqual (expectedXml, xml);
 			}
+		}
+
+		/// <summary>
+		/// Support new lines in a description that is a single line.
+		/// </summary>
+		[Test]
+		public void MicrosoftTemplateEngine_DescriptionParsing ()
+		{
+			string result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription ("test");
+			Assert.AreEqual ("test", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"test\n");
+			Assert.AreEqual ("test" + Environment.NewLine, result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"\ntest");
+			Assert.AreEqual (Environment.NewLine + "test", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"t\nest");
+			Assert.AreEqual ("t" + Environment.NewLine + "est", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"t\n\nest");
+			Assert.AreEqual ("t" + Environment.NewLine + Environment.NewLine + "est", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"test\\n");
+			Assert.AreEqual (@"test\n", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"\\ntest");
+			Assert.AreEqual (@"\ntest", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"test\");
+			Assert.AreEqual (@"test\", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"te\st");
+			Assert.AreEqual (@"te\st", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (@"te\\st");
+			Assert.AreEqual (@"te\\st", result);
+
+			result = MicrosoftTemplateEngineSolutionTemplate.ParseDescription (null);
+			Assert.IsNull (result);
 		}
 	}
 }

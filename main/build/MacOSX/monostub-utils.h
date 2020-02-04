@@ -92,7 +92,10 @@ generate_fallback_path (const char *contentsDir)
 	if (value == NULL)
 		abort ();
 
-	/* Add Mono's lib dirs and Xcode's dev lib dir into the DYLD_FALLBACK_LIBRARY_PATH */
+	/* Add Xcode's CommandLineTools dev lib dir before Xcode's Developer dir */
+	value = str_append (value, "/Library/Developer/CommandLineTools/usr/lib:");
+
+	/* Add Xcode's dev lib dir into the DYLD_FALLBACK_LIBRARY_PATH */
 	if ((xcode_dev_path = xcode_get_dev_path ()) != NULL) {
 		xcode_dev_lib_path = str_append (xcode_dev_path, "/usr/lib:");
 		tmp = value;
@@ -102,6 +105,7 @@ generate_fallback_path (const char *contentsDir)
 		free (xcode_dev_lib_path);
 	}
 
+	/* Add Mono's lib lib dir */
 	result = str_append (value, "/Library/Frameworks/Mono.framework/Libraries:/lib:/usr/lib:/usr/local/lib");
 
 	free (lib_dir);
@@ -265,6 +269,9 @@ update_environment (const char *contentsDir, bool need64Bit)
 		updated = YES;
 
 	if (push_env_to_end ("PATH", "/usr/local/bin"))
+		updated = YES;
+
+	if (push_env_to_end ("PATH", "~/.dotnet/tools"))
 		updated = YES;
 
 	if (need64Bit) {

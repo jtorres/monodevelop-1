@@ -5,8 +5,9 @@
     <PackagesDirectory>$(RootDirectory)packages</PackagesDirectory>
     <ReferencesRoslyn>$(RootDirectory)\msbuild\ReferencesRoslyn.props</ReferencesRoslyn>
     <ReferencesVSEditor>$(RootDirectory)\msbuild\ReferencesVSEditor.props</ReferencesVSEditor>
-    <NuGetVersionRoslyn>2.6.0-vs-for-mac-62303-01</NuGetVersionRoslyn>
-    <NuGetVersionVSEditor>15.6.150-preview</NuGetVersionVSEditor>
+    <ReferencesGtk>$(RootDirectory)\msbuild\ReferencesGtk.props</ReferencesGtk>
+    <NuGetVersionRoslyn>2.10.0-beta2-63315-04</NuGetVersionRoslyn>
+    <NuGetVersionVSEditor>15.8.519</NuGetVersionVSEditor>
   </PropertyGroup>
 
 </Project>
